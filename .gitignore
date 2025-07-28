@@ -1,0 +1,43 @@
+/logs/
+build
+__pycache__*
+.coverage*
+.env
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+*.bak
+.vscode
+
+# Rust
+debug/
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+reference-python
+
+# Logs and debug files
+*.log
+debug.log
+nohup.out
+*.pid
+
+# Test server logs
+examples/test-servers/*.log
+examples/test-servers/*.pid
+examples/test-servers/nohup.out
+
+# Example logs directory
+examples/logs/
+**/logs/**
+
+# Credentials and secrets
+credentials
+*.key
+*.pem
+.aws/
+
+# MCP debug outputs
+mcp_debug_*.json

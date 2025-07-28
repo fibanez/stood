@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy server script
+COPY python-server.py .
+RUN chmod +x python-server.py
+
+# Create non-root user
+RUN useradd -m -u 1000 mcpuser
+USER mcpuser
+
+# Expose port for potential WebSocket mode (not implemented yet)
+EXPOSE 8080
+
+# Default command runs in stdio mode
+CMD ["python3", "python-server.py"]

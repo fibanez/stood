@@ -1,0 +1,22 @@
+[package]
+name = "aws-doc-mcp-example"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+# Empty workspace table to make this independent
+
+[[bin]]
+name = "022_aws_doc_mcp"
+path = "022_aws_documentation_mcp.rs"
+
+[dependencies]
+stood = { path = "../../../" }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1.0"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"

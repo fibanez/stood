@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  python-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: mcp-python-test-server
+    stdin_open: true
+    tty: true
+    # For stdio testing, run interactively
+    command: python3 python-server.py
+    networks:
+      - mcp-test-network
+
+  node-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: mcp-node-test-server
+    stdin_open: true
+    tty: true
+    # For stdio testing, run interactively
+    command: node node-server.js
+    networks:
+      - mcp-test-network
+
+networks:
+  mcp-test-network:
+    driver: bridge
+
+# Usage examples:
+# 
+# Build all servers:
+#   docker-compose build
+#
+# Start Python server for stdio testing:
+#   docker-compose run --rm python-mcp-server
+#
+# Start Node.js server for stdio testing:
+#   docker-compose run --rm node-mcp-server
+#
+# For interactive testing with a shell:
+#   docker-compose run --rm python-mcp-server bash
+#   docker-compose run --rm node-mcp-server bash

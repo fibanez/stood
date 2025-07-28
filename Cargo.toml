@@ -1,0 +1,273 @@
+[workspace]
+members = [".", "stood-macros"]
+
+[package]
+name = "stood"
+version = "0.1.0"
+edition = "2021"
+authors = ["Fernando Ibanez <fernando.ibanez@gmail.com"]
+description = "AI Multi-Agent library implementation for Rust"
+license = "Apache-2.0"
+repository = "https://github.com/fibanez/stood"
+keywords = ["agent", "ai", "library"]
+categories = ["development-tools"]
+
+[profile.release]
+# Optimize for size (CDN deployment)
+opt-level = "z"          # Optimize aggressively for size
+lto = true              # Enable Link Time Optimization
+codegen-units = 1       # Reduce parallel code generation units
+panic = "abort"         # Reduce size by not including stack unwinding code
+strip = true           # Strip symbols from executable
+overflow-checks = false  # Disable overflow checks for smaller size
+
+
+[dependencies]
+# AWS Integration
+aws-config = "1.0"
+aws-sdk-bedrockruntime = "1.0"
+
+# Async Runtime
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# HTTP Client for providers
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Async traits
+async-trait = "0.1"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+num_cpus = "1.0"
+fastrand = "2.0"
+bytes = "1.0"
+once_cell = "1.19"
+base64 = "0.21"
+
+# Configuration
+toml = "0.8"
+serde_yaml = "0.9"
+
+# HTTP Client (already defined above with stream support)
+
+# WebSocket Client for MCP
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+url = "2.4"
+
+# Regular expressions for pattern matching
+regex = "1.0"
+
+# Small, fast allocator for reducing binary size
+wee_alloc = "0.4"
+
+# Optional HTTP server for health endpoints
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["cors"], optional = true }
+
+# CLI Dependencies
+clap = { version = "4.0", features = ["derive"] }
+rustyline = "13.0"
+colored = "2.0"
+indicatif = "0.17"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "std", "chrono"] }
+tracing-appender = "0.2"
+
+# OpenTelemetry and Observability (always enabled)
+opentelemetry = { version = "0.24", features = ["metrics"] }
+opentelemetry-otlp = { version = "0.17", features = ["metrics", "grpc-tonic", "http-proto", "reqwest-client"] }
+opentelemetry_sdk = { version = "0.24", features = ["metrics", "rt-tokio"] }
+opentelemetry-semantic-conventions = { version = "0.16" }
+opentelemetry-stdout = { version = "0.5" }
+tracing-opentelemetry = { version = "0.25" }
+
+# Procedural Macros
+stood-macros = { path = "stood-macros" }
+
+# Logging (for verification runner)
+env_logger = "0.10"
+
+[features]
+default = []
+examples = []  # Feature to enable example-only modules
+benchmarks = []  # Feature to enable benchmark modules
+verification = []  # Feature to enable verification framework
+http = ["axum", "tower", "tower-http"]
+cuda = []      # Feature to enable CUDA support for Candle
+metal = []     # Feature to enable Metal support for Candle
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
+mockall = "0.11"
+serde_json = "1.0"
+
+# End-to-end Testing
+expectrl = "0.7"
+tempfile = "3.0"
+assert_cmd = "2.0"
+
+
+# Unix-specific dependencies for process management
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# TODO: Re-enable when env_logger dependency is fixed
+[[bin]]
+name = "verification_runner"
+path = "tests/verification_runner.rs"
+required-features = ["verification"]
+
+# Temporarily disabled due to missing file
+# [[test]]
+# name = "test_bedrock_credentials"
+# path = "test_bedrock_credentials.rs"
+
+[[bin]]
+name = "verify"
+path = "tests/provider_integration/verify.rs"
+
+
+# Temporarily disabled due to missing files
+# [[bin]]
+# name = "test_streaming_with_tools"
+# path = "tests/test_streaming_with_tools.rs"
+
+# [[bin]]
+# name = "test_lm_studio_streaming_tools"
+# path = "tests/test_lm_studio_streaming_tools.rs"
+
+# [[bin]]
+# name = "test_simple_calculator"
+# path = "tests/test_simple_calculator.rs"
+
+# [[bin]]
+# name = "test_universal_content_blocks"
+# path = "tests/test_universal_content_blocks.rs"
+
+
+# Examples - Organized by complexity (simplest to most complex)
+
+# Foundation (001-004)
+[[example]]
+name = "001_tool_macro"
+path = "examples/001_tool_macro.rs"
+
+[[example]]
+name = "002_tool_decorator_registry"
+path = "examples/002_tool_decorator_registry.rs"
+
+[[example]]
+name = "003_interactive_chat_simple"
+path = "examples/003_interactive_chat_simple.rs"
+
+[[example]]
+name = "004_streaming_simple"
+path = "examples/004_streaming_simple.rs"
+
+# Basic Callbacks & Streaming (005-010)
+[[example]]
+name = "005_callbacks_basic"
+path = "examples/005_callbacks_basic.rs"
+
+[[example]]
+name = "006_callback_system_demo"
+path = "examples/006_callback_system_demo.rs"
+
+[[example]]
+name = "007_debug_logging"
+path = "examples/007_debug_logging.rs"
+
+[[example]]
+name = "008_streaming_custom_callbacks"
+path = "examples/008_streaming_custom_callbacks.rs"
+
+[[example]]
+name = "009_logging_demo"
+path = "examples/009_logging_demo.rs"
+
+[[example]]
+name = "010_streaming_with_tools"
+path = "examples/010_streaming_with_tools.rs"
+
+# Intermediate Agent Concepts (011-016)
+[[example]]
+name = "011_basic_agent"
+path = "examples/011_basic_agent.rs"
+
+[[example]]
+name = "012_batching_optimization_demo"
+path = "examples/012_batching_optimization_demo.rs"
+
+[[example]]
+name = "013_mcp_integration"
+path = "examples/013_mcp_integration.rs"
+
+[[example]]
+name = "014_mcp_configuration_examples"
+path = "examples/014_mcp_configuration_examples.rs"
+
+# Advanced System Features (015-021)
+[[example]]
+name = "015_authorization_chat_wrapper"
+path = "examples/015_authorization_chat_wrapper.rs"
+
+[[example]]
+name = "016_context_management"
+path = "examples/016_context_management.rs"
+
+[[example]]
+name = "017_parallel_execution"
+path = "examples/017_parallel_execution.rs"
+
+[[example]]
+name = "018_task_evaluation"
+path = "examples/018_task_evaluation.rs"
+
+[[example]]
+name = "019_agent_based_evaluation"
+path = "examples/019_agent_based_evaluation.rs"
+
+[[example]]
+name = "020_multi_perspective"
+path = "examples/020_multi_perspective.rs"
+
+[[example]]
+name = "021_agentic_chat"
+path = "examples/021_agentic_chat.rs"
+
+# Specialized Modules (022_aws_doc_mcp, 023_telemetry folder)
+[[example]]
+name = "022_aws_doc_mcp"
+path = "examples/022_aws_doc_mcp/022_aws_documentation_mcp.rs"
+
+[[example]]
+name = "023_simple_telemetry_test"
+path = "examples/023_telemetry/simple_telemetry_test.rs"
+
+[[example]]
+name = "023_smart_telemetry_test"
+path = "examples/023_telemetry/smart_telemetry_test.rs"
+
+[[example]]
+name = "023_metrics_only_test"
+path = "examples/023_telemetry/metrics_only_test.rs"
+
+[[example]]
+name = "023_metrics_test"
+path = "examples/023_telemetry/metrics_test.rs"
+
+

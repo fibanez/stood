@@ -1,0 +1,1 @@
+//! LLM-specific error types.

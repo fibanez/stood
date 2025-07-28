@@ -1,0 +1,71 @@
+# Agent Integration Rules for Rewls Project
+# Rules for proper AI agent implementation and integration
+
+[category]
+description = "Guidelines for AI agent implementation and integration patterns"
+
+[[rule]]
+id = "AGENT_001"
+title = "Return Result types for error handling"
+description = "All agent functions should return Result<T, E> for proper error handling"
+severity = "error"
+suggestions = [
+    "Use Result<T, AgentError> for all agent operations",
+    "Handle errors gracefully with proper error context",
+    "Use ? operator for error propagation"
+]
+
+[[rule]]
+id = "AGENT_002"
+title = "Specific and task-focused prompts"
+description = "Agent system prompts should be specific and task-focused"
+severity = "warning"
+suggestions = [
+    "Write clear, specific prompts with concrete examples",
+    "Avoid vague or overly broad instructions",
+    "Include context and expected output format"
+]
+
+[[rule]]
+id = "AGENT_003"
+title = "Use #[tool] macro for agent tools"
+description = "Use #[tool] macro for creating agent tools instead of manual implementation"
+severity = "warning"
+suggestions = [
+    "Use #[tool] macro for consistent tool definitions",
+    "Follow Stood library conventions for tool creation",
+    "Document tool parameters and return types"
+]
+
+[[rule]]
+id = "AGENT_004"
+title = "Parse responses with fallback mechanisms"
+description = "Agent responses should be parsed with fallback mechanisms"
+severity = "info"
+suggestions = [
+    "Implement robust parsing with multiple fallback strategies",
+    "Handle malformed responses gracefully",
+    "Use structured output formats when possible"
+]
+
+[[rule]]
+id = "AGENT_005"
+title = "Log agent interactions"
+description = "Log agent interactions for debugging and monitoring"
+severity = "info"
+suggestions = [
+    "Log all agent requests and responses",
+    "Include timing information for performance monitoring",
+    "Use structured logging for better searchability"
+]
+
+[[rule]]
+id = "AGENT_006"
+title = "Use AI agents instead of heuristics"
+description = "Avoid hardcoded heuristics - use AI agents for dynamic analysis"
+severity = "error"
+suggestions = [
+    "Replace hardcoded rules with AI-powered analysis",
+    "Use agents for dynamic decision making",
+    "Implement learning and adaptation mechanisms"
+]

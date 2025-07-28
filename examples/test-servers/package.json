@@ -1,0 +1,16 @@
+{
+  "name": "mcp-test-server",
+  "version": "1.0.0",
+  "description": "Node.js MCP Test Server for Stood library testing",
+  "main": "node-server.js",
+  "scripts": {
+    "start": "node node-server.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": ["mcp", "model-context-protocol", "test-server"],
+  "author": "Stood Library",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

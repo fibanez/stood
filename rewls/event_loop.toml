@@ -1,0 +1,161 @@
+# Event Loop Rules for Rewls Project
+# Rules for proper event loop implementation and tool extraction patterns
+
+[category]
+description = "Guidelines for event loop implementation, tool extraction, and conversation management"
+
+[[rule]]
+id = "EVENT_LOOP_001"
+title = "Conversation-driven tool extraction"
+description = "Tools must be extracted from conversation messages, not directly from LLM provider responses"
+severity = "error"
+suggestions = [
+    "Extract tools from Message.content ContentBlock::ToolUse, not ChatResponse.tool_calls",
+    "Add LLM response to conversation BEFORE extracting tools",
+    "Use extract_tool_uses(message) method to parse content blocks",
+    "Follow industry standards: Anthropic and OpenAI both require conversation-first approach"
+]
+patterns = [
+    "current_response.tool_calls",
+    "response.tool_calls.iter()",
+    "llm_response.tool_calls"
+]
+antipatterns = [
+    "Direct conversion from ChatResponse.tool_calls to ToolUse",
+    "Tool extraction before conversation update",
+    "Bypassing ContentBlock::ToolUse examination"
+]
+
+[[rule]]
+id = "EVENT_LOOP_002"
+title = "Conversation state consistency"
+description = "Conversation must be updated immediately after LLM response, before any tool processing"
+severity = "error"
+suggestions = [
+    "Add assistant message to conversation immediately after LLM response",
+    "Ensure conversation state reflects all model interactions",
+    "Tool execution should follow conversation updates, not precede them"
+]
+
+[[rule]]
+id = "EVENT_LOOP_003"
+title = "Content block structure integrity"
+description = "Message content blocks must follow Anthropic API specifications"
+severity = "warning"
+suggestions = [
+    "Use ContentBlock::ToolUse for tool requests in messages",
+    "Use ContentBlock::ToolResult for tool responses",
+    "Maintain proper content block typing and structure"
+]
+
+[[rule]]
+id = "EVENT_LOOP_004"
+title = "Provider-agnostic tool handling"
+description = "Tool extraction should work regardless of LLM provider implementation"
+severity = "warning"
+suggestions = [
+    "Avoid provider-specific response field access",
+    "Use conversation messages as the single source of truth",
+    "Ensure tool extraction works with any provider (Bedrock, OpenAI, etc.)"
+]
+
+[[rule]]
+id = "EVENT_LOOP_005"
+title = "Streaming content block assembly"
+description = "Streaming responses must assemble proper ContentBlock structures"
+severity = "error"
+suggestions = [
+    "Assemble streaming tool calls into ContentBlock::ToolUse",
+    "Maintain content block integrity during streaming",
+    "Ensure streaming and non-streaming produce identical conversation structures"
+]
+
+[[rule]]
+id = "EVENT_LOOP_006"
+title = "Avoid TODO comments in production paths"
+description = "TODO comments indicate incomplete implementation that should be resolved"
+severity = "warning"
+patterns = [
+    "TODO: Add retry tracking",
+    "TODO: Map from LLM response",
+    "TODO: Improve tool name extraction",
+    "TODO: Extract thinking from streaming"
+]
+suggestions = [
+    "Replace TODO comments with proper implementation",
+    "Use tracking issues for complex features instead of TODO comments",
+    "Implement proper retry tracking and error mapping",
+    "Complete streaming feature implementations"
+]
+
+[[rule]]
+id = "EVENT_LOOP_007"
+title = "Error handling without unwrap/panic"
+description = "Event loop should handle errors gracefully without unwrap() or panic!()"
+severity = "error"
+patterns = [
+    ".unwrap()",
+    ".expect(",
+    "panic!",
+    "unreachable!"
+]
+suggestions = [
+    "Use proper Result handling instead of unwrap()",
+    "Implement graceful error recovery strategies",
+    "Add fallback mechanisms for critical operations",
+    "Use error logging instead of panic for recoverable errors"
+]
+
+[[rule]]
+id = "EVENT_LOOP_008"
+title = "Configurable limits and thresholds"
+description = "Hard-coded limits should be configurable through EventLoopConfig"
+severity = "warning"
+patterns = [
+    "max_cycles: 10",
+    "max_tool_iterations: 7",
+    "Duration::from_secs(300)",
+    "magic number"
+]
+suggestions = [
+    "Define all limits in EventLoopConfig",
+    "Avoid magic numbers in loop conditions",
+    "Make timeouts and iteration limits configurable",
+    "Use named constants for important thresholds"
+]
+
+[[rule]]
+id = "EVENT_LOOP_010"
+title = "Proper cleanup and resource management"
+description = "Event loop must properly clean up resources and handle cancellation"
+severity = "error"
+suggestions = [
+    "Implement cleanup_stale_spans() for memory management",
+    "Handle stream cancellation gracefully",
+    "Clean up orphaned tool uses before processing",
+    "Ensure all resources are properly released on exit"
+]
+
+[[rule]]
+id = "EVENT_LOOP_011"
+title = "Retry and backoff strategies"
+description = "Error recovery should use proper retry patterns with exponential backoff"
+severity = "warning"
+suggestions = [
+    "Implement exponential backoff for retries",
+    "Track actual retry attempts in metrics",
+    "Use configurable retry strategies",
+    "Handle throttling errors with appropriate delays"
+]
+
+[[rule]]
+id = "EVENT_LOOP_012"
+title = "Tool validation and orphan cleanup"
+description = "Tool uses must be validated and orphaned tools cleaned before execution"
+severity = "error"
+suggestions = [
+    "Validate tool uses before execution",
+    "Clean orphaned empty tool uses from conversation",
+    "Ensure tool_use and tool_result blocks are properly paired",
+    "Handle incomplete tool state gracefully"
+]
