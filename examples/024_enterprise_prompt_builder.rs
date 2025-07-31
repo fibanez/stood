@@ -20,6 +20,41 @@ use stood::tool;
 use tokio::sync::Mutex;
 use rustyline::{Editor, Result as RustylineResult};
 
+/*
+ORIGINAL ENTERPRISE PROMPT BUILDER INSTRUCTIONS (for reference and task breakdown):
+
+Your task is to create an LLM prompt. Your purpose is to use your knowledge to identify questions to ask the user 
+in order to build one prompt through systematic analysis and user collaboration. We don't do it by using a role, 
+we focus strictly by defining the task we are trying to accomplish.
+
+The structure and order of the prompt you are building contains the following information that you must gather:
+1. 1 or 2 sentences that describe the task context and high level goal
+2. The data section -> here you will include the xml markdown to insert the data - this may be dynamic content 
+3. Detail task instruction, it may contain successs criteria, longer definition of what we described in section 1
+4. Examples - we prefer to have multiple examples, relevant, and diferent from each other
+5. Repetition of critical instructions
+6. Description of tools that we will develop internally or exposed through MCP
+7. Evaluation prompt - this will be a prompt that we will use for the model to verify we have all the information before we decide if we are done
+
+Your process:
+1. First, use the 'think' tool to analyze what information you need to build an effective enterprise prompt
+2. Use the 'ask_user' tool to gather specific requirements about each of the prompt sections
+   You will first ask what the final output will look like so you have visibility on the ultimate goal
+   These will be used optionally for examples, more importantly you will use them to think how to describe the task to the LLM
+3. Continue using 'think' and 'ask_user' iteratively to refine your understanding
+4. Ask the user what to do if we cannot complete a task or the information is not complete
+5. Ask the user about constraints and edge cases you think about so we can provide instructions in the prompt
+6. Think if there are other questions we may want to ask the user to make the prompt efficient
+7. Once you have sufficient information, build a comprehensive enterprise prompt using the structure we defined
+8. Present the final prompt with clear sections and explanations
+
+Be thorough, professional, and ensure the prompt you create will be suitable for enterprise use cases with proper 
+structure, clarity, and business alignment. Ask one questions at a time, don't ask multiple pieces of information at once.
+
+Your goal is to identify the task, and generate a prompt - don't generate python code - focus on asking questions to 
+the user using the ask user tool and only working on generating the best prompt based on you knowledge for the task.
+*/
+
 /// Smart input reader with bracketed paste mode support
 fn read_smart_input(prompt: &str) -> RustylineResult<String> {
     // Enable bracketed paste mode for automatic paste detection
@@ -70,6 +105,100 @@ async fn ask_user(question: String) -> Result<String, String> {
         }
         Err(e) => {
             Err(format!("Failed to read user input: {}", e))
+        }
+    }
+}
+
+/// Create a specialized task agent to gather information for one prompt section
+#[tool]
+/// Create a task agent to gather information for a specific prompt section with accumulated context
+async fn create_task(
+    section_name: String,
+    task_description: String,
+    specific_questions: String,
+    previous_context: Option<String>,
+) -> Result<String, String> {
+    println!("\n📋 Next, let's gather: {}", section_name);
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    
+    // Clone section_name for use after the spawn_blocking closure
+    let section_name_clone = section_name.clone();
+    
+    // Build context section if previous work exists
+    let context_section = if let Some(ref context) = previous_context {
+        format!("\n\nCONTEXT FROM PREVIOUS TASK AGENTS:\n{}\n\nUse this context to build upon previous work and avoid redundant questions.", context)
+    } else {
+        "\n\nYou are the first task agent, so no previous context is available.".to_string()
+    };
+
+    // Create task agent prompt with context
+    let task_agent_prompt = format!(
+        "You are a specialized task agent for: {}
+
+Your mission: {}
+
+Focus on gathering complete information for this prompt section by asking targeted questions.
+
+Guidelines for questions:
+{}{}
+
+Your process:
+1. Use 'think' tool to analyze what specific information is needed (considering previous context)
+2. Use 'ask_user' tool to ask focused, one-at-a-time questions
+3. Continue until you have comprehensive information for your section
+4. Return structured, complete information in a clear format
+
+Be thorough but focused only on your assigned section. Ask questions systematically and build upon previous answers and context.",
+        section_name, task_description, specific_questions, context_section
+    );
+
+    // Create task agent with ask_user tool (inheriting JSON display setting from parent)
+    let task_agent_result = tokio::task::spawn_blocking(move || {
+        tokio::runtime::Handle::current().block_on(async {
+            // Create a simple callback handler for task agents (no JSON display to avoid clutter)
+            let task_display = EnterprisePromptBuilderDisplay::new(false);
+            
+            let mut task_agent = Agent::builder()
+                .model(Bedrock::Claude35Sonnet)
+                .tools(vec![ask_user()]) // Task agents get ask_user tool
+                .with_builtin_tools() // Includes think tool
+                .with_callback_handler(task_display)
+                .build()
+                .await
+                .map_err(|e| format!("Failed to build task agent: {}", e))?;
+
+            // Send the task agent prompt as the first message instead of system prompt
+            let task_message = task_agent_prompt;
+
+            // Execute the task agent
+            match task_agent.execute(task_message).await {
+                Ok(result) => Ok(result.response),
+                Err(e) => Err(format!("Task agent failed: {}", e))
+            }
+        })
+    }).await;
+
+    match task_agent_result {
+        Ok(Ok(gathered_info)) => {
+            println!("✅ Completed gathering: {}", section_name_clone);
+            println!("📄 Information captured: {} characters", gathered_info.len());
+            
+            // Format the response with section header for context accumulation
+            let formatted_response = format!(
+                "=== {} ===\n{}\n",
+                section_name_clone.to_uppercase(),
+                gathered_info
+            );
+            
+            Ok(formatted_response)
+        }
+        Ok(Err(e)) => {
+            println!("❌ Unable to complete: {}", section_name_clone);
+            Err(e)
+        }
+        Err(e) => {
+            println!("❌ Processing error occurred");
+            Err(format!("Processing failed: {}", e))
         }
     }
 }
@@ -208,12 +337,12 @@ impl CallbackHandler for EnterprisePromptBuilderDisplay {
             ToolEvent::Started { name, .. } => {
                 if name == "think" {
                     *self.thinking_active.lock().await = true;
-                    println!("\n🧠 Agent is thinking...");
+                    println!("\n🧠 Analyzing requirements...");
                     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 } else if name == "ask_user" {
-                    println!("\n💬 Agent is preparing a question...");
+                    println!("\n💬 Preparing a question...");
                 } else {
-                    println!("\n🔧 Tool '{}' started", name);
+                    println!("\n🔧 Working on: {}", name);
                 }
             }
             ToolEvent::Completed {
@@ -224,24 +353,23 @@ impl CallbackHandler for EnterprisePromptBuilderDisplay {
             } => {
                 if name == "think" {
                     *self.thinking_active.lock().await = false;
-                    println!("✅ Thinking completed in {:.2}s", duration.as_secs_f64());
+                    println!("✅ Analysis completed in {:.2}s", duration.as_secs_f64());
 
                     // Show the thinking content if available
                     if let Some(ref output_value) = output {
                         if let Some(guidance) = output_value.get("guidance") {
                             if let Some(guidance_str) = guidance.as_str() {
-                                println!("💭 Agent's thoughts:");
+                                println!("💭 Key insights:");
                                 println!("{}", guidance_str);
                             }
                         }
                     }
-                    println!("\n🔄 Continuing agent response...");
+                    println!("\n🔄 Continuing...");
                 } else if name == "ask_user" {
                     println!("✅ Question answered in {:.2}s", duration.as_secs_f64());
                 } else {
                     println!(
-                        "✅ Tool '{}' completed in {:.2}s",
-                        name,
+                        "✅ Task completed in {:.2}s",
                         duration.as_secs_f64()
                     );
                 }
@@ -250,7 +378,7 @@ impl CallbackHandler for EnterprisePromptBuilderDisplay {
                 if name == "think" {
                     *self.thinking_active.lock().await = false;
                 }
-                println!("❌ Tool '{}' failed: {}", name, error);
+                println!("❌ Task failed: {}", error);
             }
         }
         Ok(())
@@ -303,11 +431,11 @@ impl CallbackHandler for EnterprisePromptBuilderDisplay {
                     *is_first_call = false;
                     // Still show JSON for first call if enabled, just with different message
                     if self.json_display_enabled {
-                        println!("🤖 Initial model call starting...");
+                        println!("🤖 Starting prompt analysis...");
                         self.display_current_message_context(&messages, tools_available);
                     }
                 } else if self.json_display_enabled {
-                    println!("🤖 Model call starting...");
+                    println!("🤖 Processing request...");
                     self.display_current_message_context(&messages, tools_available);
                 }
                 Ok(())
@@ -406,48 +534,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create the display handler with JSON display setting
     let display_handler = EnterprisePromptBuilderDisplay::new(json_display_enabled);
 
-    // Create agent with enterprise prompt building capabilities
-    println!("🔧 Creating agent with built-in tools and thinking capabilities...");
+    // Create coordinating agent with create_task tool (NO ask_user - that's for task agents)
+    println!("🔧 Setting up prompt building process...");
     let mut agent = Agent::builder()
         .model(Bedrock::Claude35Sonnet)
-        .tools(vec![ask_user()]) // Add custom ask_user tool
+        .tools(vec![create_task()]) // Add create_task tool (NO ask_user)
         .with_builtin_tools() // This includes the think tool
         .with_callback_handler(display_handler)
-        .with_task_evaluation("Review if we asked for sample data, did we create xml tags placeholders for the sample data, do we have all sections of a prompt, did we ask if the user wanted an evaluation prompt added")
+        .with_task_evaluation("Review if all 7 prompt sections have been gathered by task agents and assembled into a complete enterprise prompt")
         .build()
         .await?;
 
 
-    // Send the initial user message to start the process
+    // Send the initial message to the coordinating agent
     let initial_message = 
-            "Your task is to create an LLM prompt. Your purpose is to use your knowledge to identify questions to ask the user in order to build one prompt through systematic analysis and user collaboration.  We don't do it by using a role, we foucs strictly by defining the task we are trying to accomplish.
+        "You are an enterprise prompt coordinator. Your job is to orchestrate the creation of a complete enterprise prompt by managing specialized task agents.
 
-The structure and order of the prompt you are building contains the following information that you must gather:
-1. 1 or 2 sentences that describe the task context and high level goal
-2. The data section -> here you will include the xml markdown to insert the data - this may be dynamic content 
-3. Detail task instruction, it may contain successs criteria, longer definition of what we described in section 1
-4. Examples - we prefer to have multiple examples, relevant, and diferent from each other
-5. Repetition of critical instructions
-6. Description of tools that we will develop internall or exposed through MCP
-7. Evaluation prompt - this will be a prompt that we will use for the model to verify we have all the information before we decide if we are done
+Your mission: Build a comprehensive enterprise prompt with 7 required sections by delegating to task agents.
 
-            Your process:
-            1. First, use the 'think' tool to analyze what information you need to build an effective enterprise prompt
-            2. Use the 'ask_user' tool to gather specific requirements about each of the prompt sections
-                You will first ask what the final outpu will look like so you have visibility on the ultimate goal
-                These will be used optionally for examples, more importantly you will use them to think how to describe the task to the LLM
-            3. Continue using 'think' and 'ask_user' iteratively to refine your understanding
-            4. Ask the user what to do if we cannot complete a task or the information is not complete
-            5. Ask the user about constraints and edge cases you think about so we can provide instructions in the prompt
-            6. Think if there are other questions we may want to ask the user to make the prompt efficient
-            4. Once you have sufficient information, build a comprehensive enterprise prompt using the structure we defined
-            5. Present the final prompt with clear sections and explanations
+REQUIRED SECTIONS TO GATHER:
+1. Task Context & Goals (1-2 sentences describing the task context and high-level goal)
+2. Data Section & XML Tags (XML markdown to insert data - may be dynamic content)
+3. Detailed Task Instructions (success criteria, detailed definition of the task)
+4. Examples (multiple relevant, different examples)
+5. Critical Instructions Repetition (repetition of critical instructions)
+6. Tool Descriptions (tools to be developed internally or exposed through MCP)
+7. Evaluation Prompt (prompt for the model to verify completeness)
 
-            Be thorough, professional, and ensure the prompt you create will be suitable for enterprise use cases with proper structure, clarity, and business alignment. Ask one questions at a time, don't ask multiple pieces of information at once. 
+YOUR PROCESS:
+1. Use 'think' tool to analyze the 7 sections needed
+2. Use 'create_task' tool for EACH section with specific guidelines
+3. ACCUMULATE CONTEXT: After each task agent completes, accumulate their response and pass it to the next agent as context
+4. Collect all outputs from task agents
+5. AUTOMATICALLY assemble the final enterprise prompt with clear section headers - DO NOT ask for permission
 
-Your goal is to identify the task, and generate a prompt - don't generate python code - focus on asking questions to the user using the ask user tool and only working on generating the best prompt based on you knowledge for the task. 
+CONTEXT ACCUMULATION STRATEGY:
+- Start with no context for the first agent (pass None for previous_context)
+- After each agent completes, accumulate their formatted response
+- Pass the accumulated context to the next agent so they can build upon previous work
+- This ensures each agent has visibility into what was already gathered
 
-Start asking questions to identify the task we are trying to accomplish and gather all details from the prompt structure";
+IMPORTANT RULES:
+- DO NOT ask users directly - delegate ALL questions to task agents via create_task
+- Each create_task call should focus on ONE section only
+- Always pass accumulated context from previous agents to maintain continuity
+- Provide specific question guidelines for each task agent
+- After all task agents complete, IMMEDIATELY assemble the final prompt without asking
+- Your final response must be the complete, formatted enterprise prompt ready for use
+
+FINAL OUTPUT FORMAT:
+Once all 7 sections are gathered, format the final prompt as:
+
+# Enterprise Prompt
+
+## Task Context & Goals
+[Section 1 content]
+
+## Data Section
+[Section 2 content]
+
+## Detailed Instructions
+[Section 3 content]
+
+## Examples
+[Section 4 content]
+
+## Critical Instructions
+[Section 5 content]
+
+## Available Tools
+[Section 6 content]
+
+## Evaluation Criteria
+[Section 7 content]
+
+Start by thinking about the 7 sections, then create task agents systematically with proper context flow.";
 
     // Note: Initial message is sent to agent but not displayed to user to avoid clutter
 
@@ -460,7 +621,7 @@ Start asking questions to identify the task we are trying to accomplish and gath
             println!("{}", result.response);
         }
         Err(e) => {
-            println!("\n❌ Agent execution failed: {}", e);
+            println!("\n❌ Prompt building failed: {}", e);
             println!("This could be due to:");
             println!("  • Network connectivity issues");
             println!("  • AWS service availability");
