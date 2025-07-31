@@ -270,4 +270,9 @@ path = "examples/023_telemetry/metrics_only_test.rs"
 name = "023_metrics_test"
 path = "examples/023_telemetry/metrics_test.rs"
 
+# Enterprise Prompt Builder (024)
+[[example]]
+name = "024_enterprise_prompt_builder"
+path = "examples/024_enterprise_prompt_builder.rs"
+
 
