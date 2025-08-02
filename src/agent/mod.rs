@@ -560,6 +560,40 @@ impl Agent {
         self.agent_name.as_deref()
     }
 
+    /// Get the cancellation token if cancellation was enabled during building
+    ///
+    /// Returns the cancellation token that can be used to cancel agent execution
+    /// from other tasks, threads, or event handlers.
+    ///
+    /// # Returns
+    /// * `Some(CancellationToken)` if `.with_cancellation()` was called during building
+    /// * `None` if cancellation was not enabled
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// 
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let agent = Agent::builder()
+    ///     .with_cancellation()
+    ///     .build().await?;
+    ///     
+    /// // Get cancellation token
+    /// if let Some(cancel_token) = agent.cancellation_token() {
+    ///     // Use in ESC handler, timeout, etc.
+    ///     tokio::spawn(async move {
+    ///         // Cancel after 10 seconds
+    ///         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    ///         cancel_token.cancel();
+    ///     });
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
+        self.execution_config.event_loop.cancellation_token.clone()
+    }
+
     /// Create an AgentContext from this agent for parent-child tracking
     pub fn create_context(&self, agent_type: impl Into<String>) -> AgentContext {
         AgentContext::from_agent(self, agent_type)
@@ -1559,6 +1593,38 @@ impl AgentBuilder {
     /// ```
     pub fn with_high_tool_limit(mut self, limit: u32) -> Self {
         self.execution_config.event_loop.max_tool_iterations = limit;
+        self
+    }
+
+    /// Enable cancellation support for the agent execution
+    ///
+    /// Creates an internal cancellation token that can be retrieved after building
+    /// the agent. When cancelled, the agent will stop execution immediately,
+    /// bypassing any task evaluation and returning with a cancellation error.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// 
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let agent = Agent::builder()
+    ///     .with_cancellation()
+    ///     .build().await?;
+    ///     
+    /// // Get the cancellation token from the agent
+    /// let cancel_token = agent.cancellation_token().unwrap();
+    ///     
+    /// // In another task, cancel execution
+    /// tokio::spawn(async move {
+    ///     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    ///     cancel_token.cancel();
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_cancellation(mut self) -> Self {
+        let token = tokio_util::sync::CancellationToken::new();
+        self.execution_config.event_loop.cancellation_token = Some(token);
         self
     }
 

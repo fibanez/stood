@@ -89,6 +89,7 @@ All AgentBuilder methods for configuring agent behavior and capabilities:
 - **`with_log_level(LogLevel)`** - Debug output level (Off, Info, Debug, Trace)
 - **`with_execution_config(ExecutionConfig)`** - Direct execution settings
 - **`with_event_loop_config(EventLoopConfig)`** - EventLoop behavior settings
+- **`with_cancellation()`** - Enable external cancellation support with internal token creation
 - 
 📖 **Example:** [004_streaming_simple.rs](../examples/004_streaming_simple.rs) - Demonstrates streaming responses and execution configuration
 
@@ -134,6 +135,7 @@ Methods available on Agent instances for interaction and state management:
 - **`provider()`** - Get LLM provider instance
 - **`model()`** - Get model instance
 - **`supports_agentic_execution()`** - Check if agent supports agentic workflows
+- **`cancellation_token()`** - Get cancellation token for external termination (if configured with `with_cancellation()`)
 
 ### State Access
 - **`conversation()`** - Get read-only conversation manager

@@ -64,6 +64,8 @@ pub struct EventLoopConfig {
     pub evaluation_strategy: EvaluationStrategy,
     /// Maximum number of tool iterations per cycle
     pub max_tool_iterations: u32,
+    /// Cancellation token for early termination
+    pub cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 impl Default for EventLoopConfig {
@@ -78,6 +80,7 @@ impl Default for EventLoopConfig {
             retry_config: RetryConfig::default(),
             evaluation_strategy: EvaluationStrategy::default(),
             max_tool_iterations: 7, // Default conservative limit
+            cancellation_token: None,
         }
     }
 }
@@ -396,9 +399,10 @@ impl EventLoop {
         let mut all_responses = Vec::new(); // Collect all responses from all cycles
         let mut loop_error = None;
 
-        // Execute model interaction cycles until completion or limits
+        // Execute model interaction cycles until completion, limits, or cancellation
         while model_interaction_count < self.config.max_cycles
             && loop_start.elapsed() < self.config.max_duration
+            && !self.is_cancelled()
         {
             let cycle_id = Uuid::new_v4();
             
@@ -509,10 +513,10 @@ impl EventLoop {
         }
 
         let total_duration = loop_start.elapsed();
-        let success = loop_error.is_none();
+        let mut success = loop_error.is_none();
         
         // Combine all responses from all cycles into the final response
-        let final_response = all_responses.join("\n\n"); // Join with double newlines for readability
+        let mut final_response = all_responses.join("\n\n"); // Join with double newlines for readability
 
         // Emit EventLoopComplete callback
         if let Some(ref callback) = self.callback_handler {
@@ -612,6 +616,16 @@ impl EventLoop {
                 max_duration_ms = self.config.max_duration.as_millis(),
                 "Event loop reached maximum duration"
             );
+        }
+
+        if self.is_cancelled() {
+            tracing::info!("Event loop cancelled by cancellation token");
+            // Override success status for cancellation
+            success = false;
+            // Override final response for cancellation
+            final_response = "Execution cancelled by user request".to_string();
+            // Set loop error to indicate cancellation
+            loop_error = Some("Execution cancelled by cancellation token".to_string());
         }
 
         debug!("🏁 EventLoop::execute() completing with final_response: '{}', model_interactions: {}, success: {}", 
@@ -2370,6 +2384,18 @@ impl EventLoop {
         // In a real implementation, this would cancel the AWS Bedrock stream
         // For now, we just log the cancellation
         tracing::debug!("Stream cancellation completed");
+    }
+
+    /// Check if the event loop has been cancelled
+    ///
+    /// Returns true if a cancellation token was provided and has been cancelled.
+    /// This is used internally by the event loop to exit early and bypass task evaluation.
+    fn is_cancelled(&self) -> bool {
+        if let Some(ref token) = self.config.cancellation_token {
+            token.is_cancelled()
+        } else {
+            false
+        }
     }
 
     /// Get streaming metrics
