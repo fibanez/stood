@@ -130,4 +130,8 @@ impl LlmProvider for OpenRouterProvider {
             "google/gemini-pro-1.5",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

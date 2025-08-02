@@ -137,4 +137,8 @@ impl LlmProvider for CandleProvider {
             "distilbert-base-uncased",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

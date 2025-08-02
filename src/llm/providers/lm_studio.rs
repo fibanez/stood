@@ -588,6 +588,10 @@ impl LlmProvider for LMStudioProvider {
             "tessa-rust-t1-7b",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl LMStudioProvider {

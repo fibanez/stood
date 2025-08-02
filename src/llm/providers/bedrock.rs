@@ -60,6 +60,8 @@ pub struct BedrockProvider {
     /// AWS config for the client
     #[allow(dead_code)] // Stored for potential future features like region switching
     aws_config: aws_config::SdkConfig,
+    /// Last request JSON for raw capture (if enabled)
+    last_request_json: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl BedrockProvider {
@@ -75,10 +77,24 @@ impl BedrockProvider {
         let aws_config = config_loader.load().await;
         let client = BedrockRuntimeClient::new(&aws_config);
 
-        Ok(Self { client, aws_config })
+        Ok(Self { 
+            client, 
+            aws_config, 
+            last_request_json: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        })
     }
     
-
+    /// Store the last request JSON for raw capture
+    fn store_request_json(&self, request_json: &str) {
+        if let Ok(mut last_request) = self.last_request_json.lock() {
+            *last_request = Some(request_json.to_string());
+        }
+    }
+    
+    /// Get the last request JSON for raw capture (returns None if capture disabled or no request)
+    pub fn get_last_request_json(&self) -> Option<String> {
+        self.last_request_json.lock().ok()?.clone()
+    }
 
     /// Build request body for Bedrock API
     fn build_request_body(
@@ -980,6 +996,9 @@ impl LlmProvider for BedrockProvider {
 
         // Build request body
         let request_body = self.build_request_body(messages, model_id, tools, config)?;
+        
+        // Store request JSON for raw capture
+        self.store_request_json(&request_body);
 
         debug!(
             "[{}] Sending request to Bedrock model: {} with {} tools",
@@ -1048,6 +1067,9 @@ impl LlmProvider for BedrockProvider {
         // Build request body using existing method (no tools for streaming)
         let request_body = self.build_request_body(messages, model_id, &[], config)?;
         
+        // Store request JSON for raw capture
+        self.store_request_json(&request_body);
+        
         tracing::debug!("🌊 Bedrock streaming request body: {}", request_body);
         
         // Make streaming API call
@@ -1085,6 +1107,9 @@ impl LlmProvider for BedrockProvider {
         
         // Build request body with tools (key difference from chat_streaming)
         let request_body = self.build_request_body(messages, model_id, tools, config)?;
+        
+        // Store request JSON for raw capture
+        self.store_request_json(&request_body);
         
         tracing::debug!("🔧🌊 Bedrock streaming with tools request body: {}", request_body);
         
@@ -1157,6 +1182,10 @@ impl LlmProvider for BedrockProvider {
             "us.amazon.nova-pro-v1:0",
             "us.amazon.nova-micro-v1:0",
         ]
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

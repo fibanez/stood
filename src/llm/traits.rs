@@ -60,6 +60,9 @@ pub trait LlmProvider: Send + Sync + std::fmt::Debug {
     
     /// List of model IDs supported by this provider
     fn supported_models(&self) -> Vec<&'static str>;
+    
+    /// Downcast to concrete provider type for accessing provider-specific methods
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Model abstraction - pure metadata only, no logic

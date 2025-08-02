@@ -10,6 +10,7 @@ use crate::agent::event_loop::{EventLoopConfig, EventLoopResult};
 use crate::types::{Messages, StopReason};
 use crate::llm::traits::ProviderType;
 use crate::error::StoodError;
+use chrono::{DateTime, Utc};
 
 /// Comprehensive event types covering all Python callback scenarios
 #[derive(Debug, Clone)]
@@ -31,12 +32,16 @@ pub enum CallbackEvent {
         model_id: String,
         messages: Messages,
         tools_available: usize,
+        /// Raw JSON request sent to provider API (if capture enabled)
+        raw_request_json: Option<String>,
     },
     ModelComplete {
         response: String,
         stop_reason: StopReason,
         duration: Duration,
         tokens: Option<TokenUsage>,
+        /// Complete raw response data from provider API (if capture enabled)
+        raw_response_data: Option<RawResponseData>,
     },
     
     // Streaming Events (matches Python's data/delta/reasoning kwargs)
@@ -116,4 +121,35 @@ pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub total_tokens: u32,
+}
+
+/// Container for all raw response information from provider APIs
+#[derive(Debug, Clone)]
+pub struct RawResponseData {
+    /// Type of response (streaming vs non-streaming)
+    pub response_type: ResponseType,
+    /// Raw JSON for non-streaming responses
+    pub non_streaming_json: Option<String>,
+    /// All SSE events for streaming responses
+    pub streaming_events: Option<Vec<SSEEvent>>,
+    /// Provider-specific metadata
+    pub raw_metadata: std::collections::HashMap<String, Value>,
+}
+
+/// Type of response from provider
+#[derive(Debug, Clone)]
+pub enum ResponseType {
+    NonStreaming,
+    Streaming,
+}
+
+/// Single Server-Sent Event from streaming responses
+#[derive(Debug, Clone)]
+pub struct SSEEvent {
+    /// When this event was received
+    pub timestamp: DateTime<Utc>,
+    /// Raw JSON content of the SSE chunk
+    pub raw_json: String,
+    /// SSE event type if available (e.g., "message_start", "content_block_delta")
+    pub event_type: Option<String>,
 }

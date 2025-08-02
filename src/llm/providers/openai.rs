@@ -132,4 +132,8 @@ impl LlmProvider for OpenAIProvider {
             "gpt-3.5-turbo",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

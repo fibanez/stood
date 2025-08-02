@@ -324,6 +324,10 @@ impl LlmProvider for AnthropicProvider {
             "claude-3-opus-20240229",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl AnthropicProvider {

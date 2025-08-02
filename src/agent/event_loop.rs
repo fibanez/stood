@@ -763,20 +763,6 @@ impl EventLoop {
         _cycle_guard.checkpoint("start_model_invocation");
         let model_start = Instant::now();
         
-        // Emit ModelStart callback
-        if let Some(ref callback) = self.callback_handler {
-            let event = CallbackEvent::ModelStart {
-                provider: self.agent.config().provider,
-                model_id: self.agent.config().model_id.clone(),
-                messages: self.agent.conversation().messages().clone(),
-                tools_available: tool_config.tools.len(),
-            };
-            if let Err(e) = callback.handle_event(event).await {
-                tracing::warn!("Callback error during ModelStart: {}", e);
-            }
-        }
-
-        
         // Model call instrumentation with proper parent context propagation
         let _model_span = if let Some(ref tracer) = self.tracer {
             let model_span_id = Uuid::new_v4();
@@ -822,6 +808,27 @@ impl EventLoop {
         let model_duration = model_start.elapsed();
         _cycle_guard.checkpoint("model_invocation_complete");
         
+        // Emit ModelStart callback (after LLM call to capture raw request JSON)
+        if let Some(ref callback) = self.callback_handler {
+            // Get raw request JSON from provider if available
+            let raw_request_json = if let Some(bedrock_provider) = self.agent.provider().as_any().downcast_ref::<crate::llm::providers::BedrockProvider>() {
+                bedrock_provider.get_last_request_json()
+            } else {
+                None
+            };
+            
+            let event = CallbackEvent::ModelStart {
+                provider: self.agent.config().provider,
+                model_id: self.agent.config().model_id.clone(),
+                messages: self.agent.conversation().messages().clone(),
+                tools_available: tool_config.tools.len(),
+                raw_request_json,
+            };
+            if let Err(e) = callback.handle_event(event).await {
+                tracing::warn!("Callback error during ModelStart: {}", e);
+            }
+        }
+        
         // Emit ModelComplete callback
         if let Some(ref callback) = self.callback_handler {
             let event = CallbackEvent::ModelComplete {
@@ -833,6 +840,7 @@ impl EventLoop {
                     output_tokens: t.output_tokens,
                     total_tokens: t.total_tokens,
                 }),
+                raw_response_data: None, // TODO: Implement in Phase 2
             };
             if let Err(e) = callback.handle_event(event).await {
                 tracing::warn!("Callback error during ModelComplete: {}", e);

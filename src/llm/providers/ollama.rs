@@ -126,4 +126,8 @@ impl LlmProvider for OllamaProvider {
             "codellama",
         ]
     }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

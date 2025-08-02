@@ -16,8 +16,10 @@
 
 use std::collections::{VecDeque, HashMap};
 use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 use stood::agent::{Agent, result::AgentResult};
-use stood::agent::callbacks::{CallbackHandler, CallbackEvent, CallbackError};
+use stood::agent::callbacks::{CallbackHandler, CallbackEvent, CallbackError, ToolEvent};
+use stood::agent::callbacks::events::{ResponseType, SSEEvent, RawResponseData};
 use stood::tool;
 use stood::telemetry::TelemetryConfig;
 use chrono::{DateTime, Utc, Local};
@@ -40,13 +42,32 @@ enum AgentResponse {
     Success(AgentResult),
     Error(String),
     JsonDebug(JsonDebugData),
+    StreamingUpdate(StreamingUpdate),
+}
+
+/// Real-time streaming updates from agent execution
+#[derive(Debug, Clone)]
+enum StreamingUpdate {
+    /// Content chunk received during streaming
+    ContentChunk { content: String, is_complete: bool },
+    /// Tool execution started
+    ToolStarted { name: String, input: serde_json::Value },
+    /// Tool execution completed successfully
+    ToolCompleted { name: String, output: Option<serde_json::Value> },
+    /// Tool execution failed
+    ToolFailed { name: String, error: String },
+    /// Agent execution completed
+    Complete { result: AgentResult },
+    /// Error during streaming
+    StreamingError { message: String },
 }
 
 /// JSON debug data captured from model interactions
 #[derive(Debug, Clone)]
 pub struct JsonDebugData {
     pub json_type: JsonDebugType,
-    pub json_content: String,
+    pub json_content: String, // Composed JSON (our reconstruction)
+    pub raw_json_content: Option<String>, // Raw JSON from provider API (if available)
     pub timestamp: DateTime<Utc>,
 }
 
@@ -220,6 +241,9 @@ pub struct EnterprisePromptBuilderApp {
     
     // Agent processing
     processing_message: bool,
+    current_streaming_message: Option<Message>, // Currently streaming message
+    streaming_tool_status: Vec<String>, // Active tool status messages
+    streaming_was_used: bool, // Track if streaming was used to prevent duplicate messages
     
     // Option change tracking
     prev_debug_mode: bool,
@@ -258,6 +282,9 @@ impl EnterprisePromptBuilderApp {
             scroll_to_bottom: false,
             last_message_time: None,
             processing_message: false,
+            current_streaming_message: None,
+            streaming_tool_status: Vec::new(),
+            streaming_was_used: false,
             prev_debug_mode: false,
             prev_json_debug: false,
             show_debug_panel: false,
@@ -326,6 +353,16 @@ impl EnterprisePromptBuilderApp {
         info!("🤖 Starting agent processing for input");
         self.processing_message = true;
         self.processing_start_time = Some(std::time::Instant::now());
+        
+        // Initialize streaming message
+        self.current_streaming_message = Some(Message::new_with_agent(
+            MessageRole::Assistant,
+            String::new(), // Start with empty content
+            "Agent".to_string(),
+        ));
+        self.streaming_tool_status.clear();
+        self.streaming_was_used = false; // Reset streaming flag
+        
         debug!("Set processing_message = true, spawning async task");
         
         // Direct blocking call like example 003 - this will freeze UI during processing but that's exactly how 003 works
@@ -364,6 +401,10 @@ impl EnterprisePromptBuilderApp {
                     // Always add JSON capture callback to ensure we never lose JSON data
                     info!("📊 Adding JSON capture callback handler (always active)");
                     agent_builder = agent_builder.with_callback_handler(JsonCaptureHandler::new(sender.clone()));
+                    
+                    // Add streaming callback for real-time GUI updates
+                    info!("📵 Adding streaming GUI callback handler for real-time updates");
+                    agent_builder = agent_builder.with_callback_handler(StreamingGuiCallback::new(sender.clone()));
                     
                     match agent_builder.build().await {
                         Ok(new_agent) => {
@@ -471,40 +512,49 @@ impl App for EnterprisePromptBuilderApp {
                     }
                     debug!("[DEBUG] Success: {}", agent_result.success);
                     
-                    if agent_result.response.trim().is_empty() {
-                        warn!("❌ [ERROR] Empty response received!");
-                        warn!("💡 This might be the empty response bug we're debugging");
-                        
-                        // Add error message to the conversation
-                        self.add_message(Message::new_with_agent(
-                            MessageRole::Assistant, 
-                            "❌ Error: Received empty response from agent".to_string(), 
-                            "Agent".to_string()
-                        ));
-                    } else {
-                        // Add the assistant message to the conversation
-                        let mut message = Message::new_with_agent(
-                            MessageRole::Assistant, 
-                            agent_result.response, 
-                            "Agent".to_string()
-                        );
-                        
-                        // Add execution details as debug info if debug mode is on
-                        if self.debug_mode {
-                            let debug_info = format!(
-                                "Execution Details:\nCycles: {}\nModel calls: {}\nTool executions: {}\nDuration: {:?}\nUsed tools: {}\nSuccess: {}",
-                                agent_result.execution.cycles,
-                                agent_result.execution.model_calls,
-                                agent_result.execution.tool_executions,
-                                agent_result.duration,
-                                agent_result.used_tools,
-                                agent_result.success
+                    // Only add message if streaming was not used
+                    // (streaming messages are handled by StreamingUpdate::Complete)
+                    if !self.streaming_was_used {
+                        if agent_result.response.trim().is_empty() {
+                            warn!("❌ [ERROR] Empty response received!");
+                            warn!("💡 This might be the empty response bug we're debugging");
+                            
+                            // Add error message to the conversation
+                            self.add_message(Message::new_with_agent(
+                                MessageRole::Assistant, 
+                                "❌ Error: Received empty response from agent".to_string(), 
+                                "Agent".to_string()
+                            ));
+                        } else {
+                            // Add the assistant message to the conversation
+                            let mut message = Message::new_with_agent(
+                                MessageRole::Assistant, 
+                                agent_result.response, 
+                                "Agent".to_string()
                             );
-                            message = message.with_debug(debug_info);
+                            
+                            // Add execution details as debug info if debug mode is on
+                            if self.debug_mode {
+                                let debug_info = format!(
+                                    "Execution Details:\nCycles: {}\nModel calls: {}\nTool executions: {}\nDuration: {:?}\nUsed tools: {}\nSuccess: {}",
+                                    agent_result.execution.cycles,
+                                    agent_result.execution.model_calls,
+                                    agent_result.execution.tool_executions,
+                                    agent_result.duration,
+                                    agent_result.used_tools,
+                                    agent_result.success
+                                );
+                                message = message.with_debug(debug_info);
+                            }
+                            
+                            self.add_message(message);
                         }
-                        
-                        self.add_message(message);
+                    } else {
+                        debug!("Skipping Success message addition - streaming was used");
                     }
+                    
+                    // Reset streaming flag for next interaction
+                    self.streaming_was_used = false;
                     
                     // Reset processing state
                     self.processing_message = false;
@@ -553,10 +603,24 @@ impl App for EnterprisePromptBuilderApp {
                             JsonDebugType::Response => "Model Response JSON",
                         };
                         
+                        // Create content with both composed and raw JSON (if available)
+                        let content = if let Some(ref raw_json) = json_data.raw_json_content {
+                            format!(
+                                "🔵 **Composed JSON** (Reconstructed):\n```json\n{}\n```\n\n🔴 **Raw JSON** (Provider API):\n```json\n{}\n```",
+                                json_data.json_content,
+                                raw_json
+                            )
+                        } else {
+                            format!(
+                                "🔵 **Composed JSON** (Reconstructed):\n```json\n{}\n```\n\n🔴 **Raw JSON**: Not available",
+                                json_data.json_content
+                            )
+                        };
+                        
                         // Create a message with formatted JSON content
                         let mut message = Message::new_with_agent(
                             message_role,
-                            json_data.json_content,
+                            content,
                             "JsonCapture".to_string(),
                         );
                         
@@ -566,6 +630,11 @@ impl App for EnterprisePromptBuilderApp {
                         self.add_message(message);
                         self.scroll_to_bottom = true;
                     }
+                }
+                AgentResponse::StreamingUpdate(update) => {
+                    self.handle_streaming_update(update);
+                    // Request immediate repaint for streaming updates to ensure responsive UI
+                    ctx.request_repaint();
                 }
             }
         }
@@ -609,23 +678,46 @@ impl App for EnterprisePromptBuilderApp {
             self.prev_json_debug = self.show_json_debug;
         }
         
-        // Handle delayed auto-scroll after new messages (500ms delay)
+        // Handle delayed auto-scroll after new messages (reduced delay for streaming)
         if let Some(last_msg_time) = self.last_message_time {
-            if last_msg_time.elapsed() >= std::time::Duration::from_millis(500) {
+            let delay = if self.current_streaming_message.is_some() {
+                // Shorter delay during streaming for more responsive scrolling
+                std::time::Duration::from_millis(100)
+            } else {
+                // Normal delay for completed messages
+                std::time::Duration::from_millis(500)
+            };
+            
+            if last_msg_time.elapsed() >= delay {
                 if self.auto_scroll && !self.scroll_to_bottom {
                     self.scroll_to_bottom = true;
-                    trace!("Delayed auto-scroll triggered after 500ms");
+                    trace!("Delayed auto-scroll triggered after {:?}", delay);
                 }
-                self.last_message_time = None; // Clear the timer
+                
+                // Keep the timer active during streaming to ensure continuous scrolling
+                if self.current_streaming_message.is_none() {
+                    self.last_message_time = None; // Clear the timer only when not streaming
+                }
             } else {
-                // Keep requesting repaints until the delay passes
-                ctx.request_repaint_after(std::time::Duration::from_millis(10));
+                // Keep requesting repaints until the delay passes (more frequent during streaming)
+                let repaint_delay = if self.current_streaming_message.is_some() {
+                    std::time::Duration::from_millis(5) // Very frequent repaints during streaming
+                } else {
+                    std::time::Duration::from_millis(10)
+                };
+                ctx.request_repaint_after(repaint_delay);
             }
         }
         
         // Menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("🚪 Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        ui.close_menu();
+                    }
+                });
                 ui.menu_button("Options", |ui| {
                     ui.checkbox(&mut self.show_json_debug, "JSON Debug");
                     ui.checkbox(&mut self.show_debug_panel, "📊 Debug Panel");
@@ -673,13 +765,6 @@ impl App for EnterprisePromptBuilderApp {
                         self.force_collapse_all = true;
                         ui.close_menu();
                     }
-                });
-                ui.menu_button("Help", |ui| {
-                    ui.label("Available commands:");
-                    ui.monospace("/help - Show commands");
-                    ui.monospace("/json - Toggle JSON display");
-                    ui.monospace("/progress - Show progress");
-                    ui.monospace("/clear - Clear messages");
                 });
                 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -791,12 +876,30 @@ impl App for EnterprisePromptBuilderApp {
                     }
                 }
                 
-                // Show processing spinner as a temporary message node when processing
-                if self.processing_message {
+                // Show streaming message and status if available
+                if let Some(ref streaming_msg) = self.current_streaming_message {
+                    ui.add_space(8.0);
+                    
+                    // Clone the message to avoid borrow checker issues
+                    let streaming_msg_clone = streaming_msg.clone();
+                    self.render_streaming_message(ui, &streaming_msg_clone);
+                    
+                    // Show tool status if any tools are running
+                    if !self.streaming_tool_status.is_empty() {
+                        ui.add_space(4.0);
+                        for status in &self.streaming_tool_status {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new(status).color(Color32::from_rgb(255, 140, 0)));
+                            });
+                        }
+                    }
+                } else if self.processing_message {
+                    // Fallback spinner if no streaming message yet
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(RichText::new("⚡ ConversationAgent is thinking...").color(Color32::GRAY));
+                        ui.label(RichText::new("⚡ ConversationAgent is starting...").color(Color32::GRAY));
                     });
                 }
             });
@@ -921,6 +1024,53 @@ impl EnterprisePromptBuilderApp {
         }
     }
     
+    fn render_streaming_message(&self, ui: &mut egui::Ui, message: &Message) {
+        let agent_prefix = if let Some(ref agent_source) = message.agent_source {
+            format!("({}) ", agent_source)
+        } else {
+            String::new()
+        };
+        
+        let local_time = message.timestamp.with_timezone(&Local);
+        let header_text = format!(
+            "📵 {} - {}{}... (streaming)",
+            local_time.format("%H:%M:%S"),
+            agent_prefix,
+            message.summary.as_ref().unwrap_or(&"Response".to_string())
+        );
+        
+        let header = CollapsingHeader::new(RichText::new(header_text).color(Color32::from_rgb(100, 255, 150)))
+            .id_source(format!("streaming_{}", message.id))
+            .default_open(true); // Always open for streaming messages
+        
+        let header_response = header.show(ui, |ui| {
+            // Show streaming content with typing cursor
+            if !message.content.is_empty() {
+                for line in message.content.lines() {
+                    if line.trim().is_empty() {
+                        ui.add_space(6.0);
+                    } else {
+                        ui.monospace(line);
+                    }
+                }
+                
+                // Add typing cursor animation
+                ui.horizontal(|ui| {
+                    ui.monospace("█"); // Block cursor
+                    ui.label(RichText::new("streaming...").color(Color32::GRAY).italics());
+                });
+            } else {
+                // Show waiting message if no content yet
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new("Waiting for response...").color(Color32::GRAY).italics());
+                });
+            }
+        });
+        
+        let _ = header_response; // Suppress unused warning
+    }
+    
     fn update_message_stats(&mut self) {
         let mut user_count = 0;
         let mut assistant_count = 0;
@@ -1033,6 +1183,114 @@ impl EnterprisePromptBuilderApp {
         }
     }
     
+    fn handle_streaming_update(&mut self, update: StreamingUpdate) {
+        match update {
+            StreamingUpdate::ContentChunk { content, is_complete } => {
+                debug!("📵 Received content chunk: {} chars, complete: {}", content.len(), is_complete);
+                
+                // Mark that streaming was used
+                self.streaming_was_used = true;
+                
+                // Update the current streaming message
+                if let Some(ref mut streaming_msg) = self.current_streaming_message {
+                    streaming_msg.content.push_str(&content);
+                    
+                    // Update summary with first few words
+                    let words: Vec<&str> = streaming_msg.content.split_whitespace().take(5).collect();
+                    streaming_msg.summary = Some(format!("{}...", words.join(" ")));
+                    
+                    // Force auto-scroll for streaming content if auto-scroll is enabled
+                    if self.auto_scroll {
+                        self.scroll_to_bottom = true;
+                        self.last_message_time = Some(std::time::Instant::now());
+                        trace!("Auto-scroll triggered for streaming content");
+                    }
+                    
+                    trace!("Updated streaming message content, length now: {}", streaming_msg.content.len());
+                }
+                
+                if is_complete {
+                    debug!("✅ Content streaming completed");
+                }
+            }
+            StreamingUpdate::ToolStarted { name, input: _ } => {
+                info!("🔧 Tool started: {}", name);
+                let status_msg = format!("🔧 Running tool: {}", name);
+                self.streaming_tool_status.push(status_msg);
+                self.scroll_to_bottom = true;
+            }
+            StreamingUpdate::ToolCompleted { name, output: _ } => {
+                info!("✅ Tool completed: {}", name);
+                // Remove the running status and add completion info
+                self.streaming_tool_status.retain(|s| !s.contains(&name));
+                
+                // Add tool result to streaming message if available
+                if let Some(ref mut streaming_msg) = self.current_streaming_message {
+                    let tool_info = format!("\n\n🔧 Tool '{}' completed successfully.", name);
+                    streaming_msg.content.push_str(&tool_info);
+                }
+                self.scroll_to_bottom = true;
+            }
+            StreamingUpdate::ToolFailed { name, error } => {
+                error!("❌ Tool failed: {} - {}", name, error);
+                // Remove the running status and add error info
+                self.streaming_tool_status.retain(|s| !s.contains(&name));
+                
+                // Add tool error to streaming message
+                if let Some(ref mut streaming_msg) = self.current_streaming_message {
+                    let error_info = format!("\n\n❌ Tool '{}' failed: {}", name, error);
+                    streaming_msg.content.push_str(&error_info);
+                }
+                self.scroll_to_bottom = true;
+            }
+            StreamingUpdate::Complete { result: _ } => {
+                info!("🎉 Streaming completed, finalizing message");
+                
+                // Move streaming message to completed messages (but don't call add_message to avoid duplicate)
+                if let Some(mut streaming_msg) = self.current_streaming_message.take() {
+                    // Finalize the message content and add directly to messages list
+                    streaming_msg.summary = Some(Message::generate_summary(&streaming_msg.content));
+                    self.messages.push_back(streaming_msg);
+                    
+                    // Keep only last 100 messages to prevent memory issues
+                    if self.messages.len() > 100 {
+                        let removed = self.messages.pop_front();
+                        debug!("Removed oldest message due to 100 message limit: {:?}", removed.map(|m| m.role));
+                    }
+                    
+                    info!("Streaming message finalized. Total messages: {}", self.messages.len());
+                }
+                
+                // Clear streaming state
+                self.streaming_tool_status.clear();
+                self.processing_message = false;
+                self.scroll_to_bottom = true;
+                
+                if let Some(start_time) = self.processing_start_time {
+                    self.last_processing_time = Some(start_time.elapsed());
+                }
+                
+                debug!("Streaming completed, processing_message = false");
+            }
+            StreamingUpdate::StreamingError { message } => {
+                error!("💥 Streaming error: {}", message);
+                
+                // Add error message
+                self.add_message(Message::new_with_agent(
+                    MessageRole::System,
+                    format!("⚠️ Streaming error: {}", message),
+                    "System".to_string(),
+                ));
+                
+                // Clean up streaming state
+                self.current_streaming_message = None;
+                self.streaming_tool_status.clear();
+                self.processing_message = false;
+                self.scroll_to_bottom = true;
+            }
+        }
+    }
+    
     fn update_debug_display(&mut self) {
         // Add debug/JSON info to existing messages based on current settings
         for message in &mut self.messages {
@@ -1077,21 +1335,93 @@ impl EnterprisePromptBuilderApp {
 
 /// Custom callback handler that captures model interaction JSON data
 #[derive(Debug)]
-pub struct JsonCaptureHandler {
+struct JsonCaptureHandler {
+    sender: mpsc::Sender<AgentResponse>,
+}
+
+/// Streaming callback handler that sends real-time updates to the GUI
+#[derive(Debug)]
+struct StreamingGuiCallback {
     sender: mpsc::Sender<AgentResponse>,
 }
 
 impl JsonCaptureHandler {
-    pub fn new(sender: mpsc::Sender<AgentResponse>) -> Self {
+    fn new(sender: mpsc::Sender<AgentResponse>) -> Self {
         Self { sender }
+    }
+}
+
+impl StreamingGuiCallback {
+    fn new(sender: mpsc::Sender<AgentResponse>) -> Self {
+        Self { sender }
+    }
+    
+    /// Send JSON debug data based on agent result
+    async fn send_json_debug_data(&self, result: &stood::agent::result::AgentResult) {
+        use chrono::Utc;
+        
+        // Create JSON debug data for the response
+        let response_json = serde_json::json!({
+            "type": "model_response",
+            "timestamp": Utc::now().to_rfc3339(),
+            "response": result.response,
+            "success": result.success,
+            "duration_ms": result.duration.as_millis(),
+            "execution": {
+                "cycles": result.execution.cycles,
+                "model_calls": result.execution.model_calls,
+                "tool_executions": result.execution.tool_executions,
+            },
+            "used_tools": result.used_tools,
+            "tools_called": result.tools_called,
+        });
+        
+        let json_data = JsonDebugData {
+            json_type: JsonDebugType::Response,
+            json_content: serde_json::to_string_pretty(&response_json)
+                .unwrap_or_else(|_| "Error serializing response JSON".to_string()),
+            raw_json_content: None, // This method doesn't have access to raw JSON
+            timestamp: Utc::now(),
+        };
+        
+        if let Err(e) = self.sender.send(AgentResponse::JsonDebug(json_data)) {
+            error!("Failed to send JSON debug data to GUI: {}", e);
+        } else {
+            debug!("📊 Sent JSON debug data for completed execution");
+        }
     }
 }
 
 #[async_trait]
 impl CallbackHandler for JsonCaptureHandler {
+    /// Handle streaming events - not used for JSON capture but required for trait
+    async fn on_content(&self, _content: &str, _is_complete: bool) -> Result<(), CallbackError> {
+        // JSON capture doesn't need content streaming events
+        Ok(())
+    }
+    
+    /// Handle tool events - not used for JSON capture but required for trait
+    async fn on_tool(&self, _event: ToolEvent) -> Result<(), CallbackError> {
+        // JSON capture doesn't need tool events
+        Ok(())
+    }
+    
+    /// Handle completion events - not used for JSON capture but required for trait
+    async fn on_complete(&self, _result: &stood::agent::result::AgentResult) -> Result<(), CallbackError> {
+        // JSON capture doesn't need completion events
+        Ok(())
+    }
+    
+    /// Handle error events - not used for JSON capture but required for trait
+    async fn on_error(&self, _error: &stood::StoodError) -> Result<(), CallbackError> {
+        // JSON capture doesn't need error events
+        Ok(())
+    }
+    
+    /// Main event handler for JSON capture - this captures model request/response JSON
     async fn handle_event(&self, event: CallbackEvent) -> Result<(), CallbackError> {
         match event {
-            CallbackEvent::ModelStart { provider, model_id, messages, tools_available } => {
+            CallbackEvent::ModelStart { provider, model_id, messages, tools_available, raw_request_json: _ } => {
                 debug!("📤 Capturing model request JSON");
                 
                 // Create JSON representation of the request
@@ -1108,6 +1438,7 @@ impl CallbackHandler for JsonCaptureHandler {
                     json_type: JsonDebugType::Request,
                     json_content: serde_json::to_string_pretty(&request_json)
                         .unwrap_or_else(|_| "Error serializing request JSON".to_string()),
+                    raw_json_content: None, // JsonCaptureHandler doesn't have access to raw JSON
                     timestamp: Utc::now(),
                 };
                 
@@ -1116,7 +1447,7 @@ impl CallbackHandler for JsonCaptureHandler {
                     error!("Failed to send JSON request data to UI: {}", e);
                 }
             }
-            CallbackEvent::ModelComplete { response, stop_reason, duration, tokens } => {
+            CallbackEvent::ModelComplete { response, stop_reason, duration, tokens, raw_response_data: _ } => {
                 debug!("📥 Capturing model response JSON");
                 
                 // Create JSON representation of the response
@@ -1137,6 +1468,7 @@ impl CallbackHandler for JsonCaptureHandler {
                     json_type: JsonDebugType::Response,
                     json_content: serde_json::to_string_pretty(&response_json)
                         .unwrap_or_else(|_| "Error serializing response JSON".to_string()),
+                    raw_json_content: None, // JsonCaptureHandler doesn't have access to raw JSON
                     timestamp: Utc::now(),
                 };
                 
@@ -1150,6 +1482,209 @@ impl CallbackHandler for JsonCaptureHandler {
             }
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl CallbackHandler for StreamingGuiCallback {
+    /// Handle streaming content as it's generated
+    async fn on_content(&self, content: &str, is_complete: bool) -> Result<(), CallbackError> {
+        debug!("📊 Streaming content chunk: {} chars, complete: {}", content.len(), is_complete);
+        
+        let update = StreamingUpdate::ContentChunk {
+            content: content.to_string(),
+            is_complete,
+        };
+        
+        if let Err(e) = self.sender.send(AgentResponse::StreamingUpdate(update)) {
+            error!("Failed to send streaming content update to GUI: {}", e);
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle tool execution events
+    async fn on_tool(&self, event: ToolEvent) -> Result<(), CallbackError> {
+        let update = match event {
+            ToolEvent::Started { name, input } => {
+                debug!("🔧 Tool started: {} with input: {:?}", name, input);
+                StreamingUpdate::ToolStarted { 
+                    name: name.clone(), 
+                    input: input.clone()
+                }
+            }
+            ToolEvent::Completed { name, output, .. } => {
+                debug!("✅ Tool completed: {} with output: {:?}", name, output);
+                StreamingUpdate::ToolCompleted { 
+                    name: name.clone(), 
+                    output: output.clone()
+                }
+            }
+            ToolEvent::Failed { name, error, .. } => {
+                debug!("❌ Tool failed: {} - {}", name, error);
+                StreamingUpdate::ToolFailed { 
+                    name: name.clone(), 
+                    error: error.clone()
+                }
+            }
+        };
+        
+        if let Err(e) = self.sender.send(AgentResponse::StreamingUpdate(update)) {
+            error!("Failed to send tool event update to GUI: {}", e);
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle execution completion
+    async fn on_complete(&self, result: &stood::agent::result::AgentResult) -> Result<(), CallbackError> {
+        debug!("🎉 Agent execution completed successfully");
+        
+        let update = StreamingUpdate::Complete {
+            result: result.clone(),
+        };
+        
+        if let Err(e) = self.sender.send(AgentResponse::StreamingUpdate(update)) {
+            error!("Failed to send completion update to GUI: {}", e);
+        }
+        
+        // JSON debug data is now handled in handle_event method via ModelStart/ModelComplete events
+        
+        Ok(())
+    }
+    
+    /// Handle streaming errors
+    async fn on_error(&self, error: &stood::StoodError) -> Result<(), CallbackError> {
+        error!("💥 Streaming error occurred: {}", error);
+        
+        let update = StreamingUpdate::StreamingError {
+            message: error.to_string(),
+        };
+        
+        if let Err(e) = self.sender.send(AgentResponse::StreamingUpdate(update)) {
+            error!("Failed to send error update to GUI: {}", e);
+        }
+        
+        Ok(())
+    }
+    
+    /// Handle all events including ModelStart for JSON capture
+    async fn handle_event(&self, event: CallbackEvent) -> Result<(), CallbackError> {
+        match event {
+            CallbackEvent::ModelStart { provider, model_id, messages, tools_available, raw_request_json } => {
+                debug!("📤 Capturing model request JSON from streaming callback");
+                
+                // Create JSON representation of the request (composed)
+                let request_json = serde_json::json!({
+                    "type": "model_request",
+                    "provider": format!("{:?}", provider),
+                    "model_id": model_id,
+                    "timestamp": Utc::now().to_rfc3339(),
+                    "messages": messages,
+                    "tools_available": tools_available,
+                });
+                
+                let json_data = JsonDebugData {
+                    json_type: JsonDebugType::Request,
+                    json_content: serde_json::to_string_pretty(&request_json)
+                        .unwrap_or_else(|_| "Error serializing request JSON".to_string()),
+                    raw_json_content: raw_request_json.clone(), // Raw JSON from provider
+                    timestamp: Utc::now(),
+                };
+                
+                // Send to UI thread
+                if let Err(e) = self.sender.send(AgentResponse::JsonDebug(json_data)) {
+                    error!("Failed to send JSON request data to UI: {}", e);
+                }
+                
+                Ok(())
+            }
+            CallbackEvent::ModelComplete { response, stop_reason, duration, tokens, raw_response_data } => {
+                debug!("📥 Capturing model response JSON from streaming callback");
+                
+                // Create JSON representation of the response (composed)
+                let response_json = serde_json::json!({
+                    "type": "model_response",
+                    "timestamp": Utc::now().to_rfc3339(),
+                    "response": response,
+                    "stop_reason": format!("{:?}", stop_reason),
+                    "duration_ms": duration.as_millis(),
+                    "tokens": tokens.map(|t| serde_json::json!({
+                        "input_tokens": t.input_tokens,
+                        "output_tokens": t.output_tokens,
+                        "total_tokens": t.total_tokens,
+                    })),
+                });
+                
+                // Extract raw JSON from raw_response_data if available
+                let raw_json = raw_response_data.as_ref().and_then(|data| {
+                    match data.response_type {
+                        ResponseType::NonStreaming => {
+                            data.non_streaming_json.clone()
+                        }
+                        ResponseType::Streaming => {
+                            // For streaming, create a JSON array of all SSE events
+                            if let Some(ref events) = data.streaming_events {
+                                let events_json = serde_json::json!({
+                                    "type": "streaming_response",
+                                    "events": events.iter().map(|event| serde_json::json!({
+                                        "timestamp": event.timestamp.to_rfc3339(),
+                                        "event_type": event.event_type,
+                                        "raw_json": event.raw_json,
+                                    })).collect::<Vec<_>>()
+                                });
+                                serde_json::to_string_pretty(&events_json).ok()
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                });
+                
+                let json_data = JsonDebugData {
+                    json_type: JsonDebugType::Response,
+                    json_content: serde_json::to_string_pretty(&response_json)
+                        .unwrap_or_else(|_| "Error serializing response JSON".to_string()),
+                    raw_json_content: raw_json, // Raw JSON from provider
+                    timestamp: Utc::now(),
+                };
+                
+                // Send to UI thread
+                if let Err(e) = self.sender.send(AgentResponse::JsonDebug(json_data)) {
+                    error!("Failed to send JSON response data to UI: {}", e);
+                }
+                
+                Ok(())
+            }
+            // For all other events, delegate to the default implementation
+            _ => {
+                // Call the default trait implementation which will route to our specialized methods
+                match event {
+                    CallbackEvent::ContentDelta { delta, complete, .. } => {
+                        self.on_content(&delta, complete).await
+                    }
+                    CallbackEvent::ToolStart { tool_name, input, .. } => {
+                        self.on_tool(ToolEvent::Started { name: tool_name, input }).await
+                    }
+                    CallbackEvent::ToolComplete { tool_name, output, error, duration, .. } => {
+                        if let Some(err) = error {
+                            self.on_tool(ToolEvent::Failed { name: tool_name, error: err, duration }).await
+                        } else {
+                            self.on_tool(ToolEvent::Completed { name: tool_name, output, duration }).await
+                        }
+                    }
+                    CallbackEvent::EventLoopComplete { result, .. } => {
+                        // Convert EventLoopResult to AgentResult for callback
+                        let agent_result = stood::agent::result::AgentResult::from(result, Duration::ZERO);
+                        self.on_complete(&agent_result).await
+                    }
+                    CallbackEvent::Error { error, .. } => {
+                        self.on_error(&error).await
+                    }
+                    _ => Ok(()), // Ignore other events
+                }
+            }
+        }
     }
 }
 
