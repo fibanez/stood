@@ -32,6 +32,7 @@ All AgentBuilder methods for configuring agent behavior and capabilities:
 - **`system_prompt(String)`** - System prompt for agent behavior
 - **`name(String)`** - Agent name for identification
 - **`with_id(String)`** - Custom agent ID (auto-generated UUID if not provided)
+- **`with_credentials(access_key, secret_key, session_token)`** - Configure AWS credentials programmatically for Bedrock provider
 - 
 📖 **Example:** [011_basic_agent.rs](../examples/011_basic_agent.rs) - Demonstrates core agent configuration with different models and parameters
 

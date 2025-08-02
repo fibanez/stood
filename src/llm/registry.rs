@@ -15,6 +15,14 @@ use tokio::sync::RwLock;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+/// Bedrock-specific credentials for programmatic authentication
+#[derive(Debug, Clone)]
+pub struct BedrockCredentials {
+    pub access_key: String,
+    pub secret_key: String,
+    pub session_token: Option<String>,
+}
+
 /// Global provider registry instance
 /// 
 /// This is initialized once and shared across all agents for efficient provider reuse.
@@ -37,7 +45,7 @@ pub enum ProviderConfig {
     Bedrock {
         region: Option<String>,
         #[serde(skip)] // Don't serialize credentials
-        credentials: Option<String>, // For now, use default credential chain
+        credentials: Option<BedrockCredentials>,
     },
     /// LM Studio configuration
     LMStudio {
@@ -176,13 +184,24 @@ impl ProviderRegistry {
         
         // Create provider based on configuration
         let provider: Arc<dyn LlmProvider> = match (provider_type, config) {
-            (ProviderType::Bedrock, ProviderConfig::Bedrock { region, .. }) => {
-                let bedrock_provider = BedrockProvider::new(region.clone()).await
-                    .map_err(|e| LlmError::ProviderError {
-                        provider: provider_type,
-                        message: format!("Failed to create Bedrock provider: {}", e),
-                        source: Some(Box::new(e)),
-                    })?;
+            (ProviderType::Bedrock, ProviderConfig::Bedrock { region, credentials }) => {
+                let bedrock_provider = if let Some(creds) = credentials {
+                    // Use custom credentials
+                    BedrockProvider::with_credentials(
+                        region.clone(),
+                        creds.access_key.clone(),
+                        creds.secret_key.clone(),
+                        creds.session_token.clone(),
+                    ).await
+                } else {
+                    // Use default credential chain
+                    BedrockProvider::new(region.clone()).await
+                }
+                .map_err(|e| LlmError::ProviderError {
+                    provider: provider_type,
+                    message: format!("Failed to create Bedrock provider: {}", e),
+                    source: Some(Box::new(e)),
+                })?;
                 Arc::new(bedrock_provider)
             },
             (ProviderType::LmStudio, ProviderConfig::LMStudio { base_url, retry_config }) => {

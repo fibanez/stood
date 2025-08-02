@@ -84,6 +84,64 @@ impl BedrockProvider {
         })
     }
     
+    /// Create a new Bedrock provider with custom AWS credentials
+    /// 
+    /// This allows injecting credentials programmatically instead of relying on
+    /// the default AWS credential provider chain. Useful for applications that
+    /// manage credentials centrally (e.g., AWS Identity Center, STS assume role).
+    /// 
+    /// # Arguments
+    /// * `region` - Optional AWS region (defaults to AWS SDK default)
+    /// * `access_key` - AWS access key ID
+    /// * `secret_key` - AWS secret access key  
+    /// * `session_token` - Optional session token for temporary credentials
+    /// 
+    /// # Example
+    /// ```no_run
+    /// # use stood::llm::providers::bedrock::BedrockProvider;
+    /// # async fn example() -> Result<(), stood::llm::traits::LlmError> {
+    /// let provider = BedrockProvider::with_credentials(
+    ///     Some("us-east-1".to_string()),
+    ///     "AKIA...".to_string(),
+    ///     "secret".to_string(),
+    ///     Some("token".to_string())
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn with_credentials(
+        region: Option<String>,
+        access_key: String,
+        secret_key: String, 
+        session_token: Option<String>
+    ) -> Result<Self, LlmError> {
+        // Create credentials from provided parameters
+        let creds = aws_sdk_bedrockruntime::config::Credentials::new(
+            access_key,
+            secret_key,
+            session_token,
+            None, // expiration - None means no known expiration
+            "StoodLibraryCustomCredentials"
+        );
+        
+        // Configure AWS SDK with custom credentials
+        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .credentials_provider(creds);
+            
+        if let Some(region) = region {
+            config_loader = config_loader.region(aws_config::Region::new(region));
+        }
+        
+        let aws_config = config_loader.load().await;
+        let client = BedrockRuntimeClient::new(&aws_config);
+        
+        Ok(Self { 
+            client, 
+            aws_config, 
+            last_request_json: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        })
+    }
+    
     /// Store the last request JSON for raw capture
     fn store_request_json(&self, request_json: &str) {
         if let Ok(mut last_request) = self.last_request_json.lock() {

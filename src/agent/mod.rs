@@ -920,6 +920,16 @@ pub struct AgentBuilder {
     model: Option<Box<dyn LlmModel>>,
     agent_id: Option<String>,
     agent_name: Option<String>,
+    aws_credentials: Option<AwsCredentials>,
+}
+
+/// AWS credentials for programmatic authentication
+#[derive(Debug, Clone)]
+pub struct AwsCredentials {
+    pub access_key: String,
+    pub secret_key: String,
+    pub session_token: Option<String>,
+    pub region: Option<String>,
 }
 
 impl AgentBuilder {
@@ -931,6 +941,7 @@ impl AgentBuilder {
             model: None,
             agent_id: None,
             agent_name: None,
+            aws_credentials: None,
         }
     }
 
@@ -1628,6 +1639,87 @@ impl AgentBuilder {
         self
     }
 
+    /// Configure AWS credentials for Bedrock provider
+    ///
+    /// This allows programmatic authentication instead of relying on the default
+    /// AWS credential chain. Useful for applications that manage credentials
+    /// centrally or use temporary credentials from STS.
+    ///
+    /// # Arguments
+    /// * `access_key` - AWS access key ID
+    /// * `secret_key` - AWS secret access key
+    /// * `session_token` - Optional session token for temporary credentials
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// use stood::llm::models::Bedrock;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let agent = Agent::builder()
+    ///     .model(Bedrock::Claude35Haiku)
+    ///     .with_credentials(
+    ///         "AKIA...".to_string(),
+    ///         "secret".to_string(),
+    ///         Some("token".to_string())
+    ///     )
+    ///     .build().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_credentials(
+        mut self,
+        access_key: String,
+        secret_key: String,
+        session_token: Option<String>,
+    ) -> Self {
+        self.aws_credentials = Some(AwsCredentials {
+            access_key,
+            secret_key,
+            session_token,
+            region: None, // Will be set from model or environment
+        });
+        self
+    }
+
+    /// Configure AWS credentials with a specific region
+    ///
+    /// Like `with_credentials` but also sets the AWS region to use.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// use stood::llm::models::Bedrock;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let agent = Agent::builder()
+    ///     .model(Bedrock::Claude35Haiku)
+    ///     .with_credentials_and_region(
+    ///         "AKIA...".to_string(),
+    ///         "secret".to_string(),
+    ///         Some("token".to_string()),
+    ///         "us-west-2".to_string()
+    ///     )
+    ///     .build().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_credentials_and_region(
+        mut self,
+        access_key: String,
+        secret_key: String,
+        session_token: Option<String>,
+        region: String,
+    ) -> Self {
+        self.aws_credentials = Some(AwsCredentials {
+            access_key,
+            secret_key,
+            session_token,
+            region: Some(region),
+        });
+        self
+    }
+
     /// Build the configured agent instance with smart defaults.
     ///
     /// Automatically creates a BedrockClient if none was provided, enabling
@@ -1699,6 +1791,25 @@ impl AgentBuilder {
         
         // CRITICAL FIX: Auto-configure provider registry with timeout and error handling
         let provider_type = model.provider();
+        
+        // Configure custom credentials for Bedrock if provided
+        if provider_type == ProviderType::Bedrock && self.aws_credentials.is_some() {
+            use crate::llm::registry::{ProviderConfig, BedrockCredentials};
+            
+            let aws_creds = self.aws_credentials.as_ref().unwrap();
+            let bedrock_creds = BedrockCredentials {
+                access_key: aws_creds.access_key.clone(),
+                secret_key: aws_creds.secret_key.clone(),
+                session_token: aws_creds.session_token.clone(),
+            };
+            
+            let bedrock_config = ProviderConfig::Bedrock {
+                region: aws_creds.region.clone(),
+                credentials: Some(bedrock_creds),
+            };
+            
+            PROVIDER_REGISTRY.add_config(ProviderType::Bedrock, bedrock_config).await;
+        }
         
         // For LM Studio providers, configure retry settings if specified
         if provider_type == ProviderType::LmStudio && self.config.retry_config.is_some() {

@@ -90,3 +90,33 @@ async fn test_direct_nova_vs_claude() -> Result<(), Box<dyn std::error::Error>> 
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_bedrock_provider_with_credentials() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🔑 Testing BedrockProvider with custom credentials");
+    println!("================================================");
+
+    // This test validates that the with_credentials method:
+    // 1. Accepts credential parameters without error
+    // 2. Creates a properly configured provider
+    // 3. The provider has the same interface as the standard provider
+    
+    let provider = BedrockProvider::with_credentials(
+        Some("us-east-1".to_string()),
+        "dummy_access_key".to_string(),
+        "dummy_secret_key".to_string(),
+        Some("dummy_session_token".to_string())
+    ).await?;
+    
+    println!("✅ BedrockProvider created successfully with custom credentials");
+    
+    // Validate the provider has the expected interface
+    assert!(provider.supported_models().len() > 0);
+    println!("✅ Provider reports {} supported models", provider.supported_models().len());
+    
+    // Note: We don't actually call the API with dummy credentials
+    // This test only validates that the credential injection mechanism works
+    println!("✅ Credential injection mechanism validated");
+    
+    Ok(())
+}
