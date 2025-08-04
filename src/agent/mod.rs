@@ -1649,6 +1649,7 @@ impl AgentBuilder {
     /// * `access_key` - AWS access key ID
     /// * `secret_key` - AWS secret access key
     /// * `session_token` - Optional session token for temporary credentials
+    /// * `region` - AWS region for service endpoints
     ///
     /// # Examples
     /// ```no_run
@@ -1661,7 +1662,8 @@ impl AgentBuilder {
     ///     .with_credentials(
     ///         "AKIA...".to_string(),
     ///         "secret".to_string(),
-    ///         Some("token".to_string())
+    ///         Some("token".to_string()),
+    ///         "us-east-1".to_string()
     ///     )
     ///     .build().await?;
     /// # Ok(())
@@ -1672,19 +1674,21 @@ impl AgentBuilder {
         access_key: String,
         secret_key: String,
         session_token: Option<String>,
+        region: String,
     ) -> Self {
         self.aws_credentials = Some(AwsCredentials {
             access_key,
             secret_key,
             session_token,
-            region: None, // Will be set from model or environment
+            region: Some(region),
         });
         self
     }
 
     /// Configure AWS credentials with a specific region
     ///
-    /// Like `with_credentials` but also sets the AWS region to use.
+    /// **Deprecated:** Use `with_credentials` instead, which now includes region as a required parameter.
+    /// This method is kept for backward compatibility.
     ///
     /// # Examples
     /// ```no_run
@@ -1692,6 +1696,7 @@ impl AgentBuilder {
     /// use stood::llm::models::Bedrock;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Deprecated - use with_credentials instead
     /// let agent = Agent::builder()
     ///     .model(Bedrock::Claude35Haiku)
     ///     .with_credentials_and_region(
@@ -1704,6 +1709,7 @@ impl AgentBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    #[deprecated(since = "1.0.0", note = "Use `with_credentials` instead, which now includes region as a required parameter")]
     pub fn with_credentials_and_region(
         mut self,
         access_key: String,
