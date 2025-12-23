@@ -142,8 +142,8 @@ impl TestConfigBuilder {
 fn default_model_for_provider(provider: ProviderType) -> String {
     match provider {
         ProviderType::LmStudio => "google/gemma-3-27b".to_string(),
-        ProviderType::Bedrock => "us.anthropic.claude-3-5-haiku-20241022-v1:0".to_string(),
-        ProviderType::Anthropic => "claude-3-5-haiku-20241022".to_string(),
+        ProviderType::Bedrock => "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
+        ProviderType::Anthropic => "claude-haiku-4-5-20251001".to_string(),
         ProviderType::OpenAI => "gpt-4".to_string(),
         ProviderType::Ollama => "llama3.2".to_string(),
         _ => "unknown-model".to_string(),
@@ -153,10 +153,10 @@ fn default_model_for_provider(provider: ProviderType) -> String {
 /// Create test configurations for all supported model combinations
 pub fn create_integration_test_configs() -> Vec<TestConfig> {
     vec![
-        // AWS Bedrock Claude 3.5 Haiku
+        // AWS Bedrock Claude Haiku 4.5
         TestConfig {
             provider: ProviderType::Bedrock,
-            model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0".to_string(),
+            model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
             timeout: Duration::from_secs(30),
             max_retries: 3,
             enable_telemetry: true,

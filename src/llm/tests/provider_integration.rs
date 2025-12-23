@@ -87,7 +87,7 @@ async fn test_bedrock_provider_streaming() {
     let config = ChatConfig::default();
     
     let stream_result = provider.chat_streaming(
-        Bedrock::Claude35Sonnet.model_id(),
+        Bedrock::ClaudeSonnet45.model_id(),
         &messages,
         &config
     ).await;
@@ -165,7 +165,7 @@ async fn test_bedrock_provider_tool_calling() {
     let config = ChatConfig::default();
     
     let response = provider.chat_with_tools(
-        Bedrock::Claude35Sonnet.model_id(),
+        Bedrock::ClaudeSonnet45.model_id(),
         &messages,
         &[calculator_tool],
         &config
@@ -226,7 +226,7 @@ async fn test_bedrock_provider_error_scenarios() {
     
     // Test with empty messages
     let empty_messages = Messages::new();
-    let response = provider.chat(Bedrock::Claude35Sonnet.model_id(), &empty_messages, &config).await;
+    let response = provider.chat(Bedrock::ClaudeSonnet45.model_id(), &empty_messages, &config).await;
     
     match response {
         Err(_) => {

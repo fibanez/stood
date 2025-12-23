@@ -42,11 +42,11 @@ async fn test_agent_chat_integration_haiku() {
         return;
     }
 
-    println!("🚀 Hi, Testing Agent chat integration with Claude 3.5 Haiku...");
+    println!("🚀 Hi, Testing Agent chat integration with Claude Haiku 4.5...");
 
     // Create agent with Haiku (our default model) - providers auto-configured
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant. Keep responses very brief and concise.")
         .temperature(0.7)
         .max_tokens(100) // Keep responses short for testing
@@ -130,7 +130,7 @@ async fn test_agent_chat_error_recovery() {
     println!("🛠️  Testing Agent chat error recovery...");
 
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are helpful.")
         .build()
         .await.expect("Failed to build agent");
@@ -176,7 +176,7 @@ async fn test_agent_chat_conversation_persistence() {
     println!("📏 Testing Agent chat conversation persistence...");
 
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("Be very brief. Answer with one word when possible.")
         .build()
         .await.expect("Failed to build agent");
@@ -221,7 +221,7 @@ async fn test_agent_chat_different_models() {
 
     // Test with Haiku (our default)
     let mut haiku_agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("Answer in exactly 3 words.")
         .temperature(0.3)
         .build()
@@ -237,7 +237,7 @@ async fn test_agent_chat_different_models() {
 
     // Test with Sonnet (if available)
     let mut sonnet_agent = Agent::builder()
-        .model(Bedrock::Claude35Sonnet)
+        .model(Bedrock::ClaudeSonnet45)
         .system_prompt("Answer in exactly 3 words.")
         .temperature(0.3)
         .build()
@@ -279,7 +279,7 @@ async fn test_agent_chat_system_prompt_behavior() {
 
     // Agent 1: Formal assistant
     let mut formal_agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a formal, professional assistant. Always use formal language and complete sentences.")
         .temperature(0.1) // Low temperature for consistency
         .build()
@@ -287,7 +287,7 @@ async fn test_agent_chat_system_prompt_behavior() {
 
     // Agent 2: Casual assistant
     let mut casual_agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a casual, friendly assistant. Use informal language and be brief.")
         .temperature(0.1) // Low temperature for consistency
         .build()
@@ -462,7 +462,7 @@ async fn test_bedrock_client_accepts_tool_config() {
 
     // Create agent with tools
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool if the user asks for math calculations.")
         .tool(Box::new(TestCalculatorTool))
         .tool(Box::new(TestTimeTool))
@@ -507,7 +507,7 @@ async fn test_event_loop_llm_driven_tool_selection() {
 
     // Create client and agent
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku) // Use reliable model
+        .model(Bedrock::ClaudeHaiku45) // Use reliable model
         .build()
         .await.unwrap();
 
@@ -594,7 +594,7 @@ async fn test_event_loop_tool_use_response_parsing() {
 
     // Create client and agent
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .build()
         .await.unwrap();
 
@@ -671,7 +671,7 @@ async fn test_event_loop_multiple_tools_llm_choice() {
 
     // Create client and agent
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .build()
         .await.unwrap();
 
@@ -775,7 +775,7 @@ async fn test_event_loop_conversation_context_with_tools() {
 
     // Create client and agent
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .build()
         .await.unwrap();
 
@@ -887,7 +887,7 @@ async fn test_event_loop_handles_tool_failures() {
 
     // Create client and agent
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .build()
         .await.unwrap();
 
@@ -1064,7 +1064,7 @@ async fn test_callback_integration_end_to_end() {
 
     // Create agent with callback handler configured
     let agent = match Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant. Keep responses brief.")
         .with_callback_handler(callback_handler)
         .tool(Box::new(CalculatorTool::new()))

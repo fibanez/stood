@@ -13,7 +13,7 @@ use stood::agent::Agent;
 use stood::llm::models::Bedrock;
 
 let agent = Agent::builder()
-    .model(Bedrock::Claude35Haiku)
+    .model(Bedrock::ClaudeHaiku45)
     .temperature(0.7)
     .system_prompt("You are a helpful assistant")
     .build()
@@ -26,7 +26,7 @@ All AgentBuilder methods for configuring agent behavior and capabilities:
 
 ### Core Configuration
 
-- **`model(M)`** - Set the LLM model (Bedrock::Claude35Haiku, LMStudio::Gemma3_12B, etc.)
+- **`model(M)`** - Set the LLM model (Bedrock::ClaudeHaiku45, LMStudio::Gemma3_12B, etc.)
 - **`temperature(f32)`** - Response randomness (0.0-1.0, default: 0.7)
 - **`max_tokens(u32)`** - Maximum response length (default: 4096)
 - **`system_prompt(String)`** - System prompt for agent behavior

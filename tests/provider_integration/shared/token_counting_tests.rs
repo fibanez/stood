@@ -52,9 +52,9 @@ impl VerificationTest for StreamingTokenCountingTest {
         let result = async {
             // Create agent with streaming enabled based on provider and model
             let mut agent = match (config.provider, config.model_id.as_str()) {
-                (ProviderType::Bedrock, "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+                (ProviderType::Bedrock, "us.anthropic.claude-haiku-4-5-20251001-v1:0") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Respond concisely.")
                         .with_streaming(true)
                         .build()
@@ -229,9 +229,9 @@ impl VerificationTest for NonStreamingTokenCountingTest {
         let result = async {
             // Create agent with streaming disabled based on provider and model
             let mut agent = match (config.provider, config.model_id.as_str()) {
-                (ProviderType::Bedrock, "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+                (ProviderType::Bedrock, "us.anthropic.claude-haiku-4-5-20251001-v1:0") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Respond concisely.")
                         .with_streaming(false)
                         .build()
@@ -404,9 +404,9 @@ impl VerificationTest for StreamingTokenCountingWithToolsTest {
             
             // Create agent with streaming and tools enabled
             let mut agent = match (config.provider, config.model_id.as_str()) {
-                (ProviderType::Bedrock, "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+                (ProviderType::Bedrock, "us.anthropic.claude-haiku-4-5-20251001-v1:0") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
                         .tool(Box::new(CalculatorTool))
                         .with_streaming(true)
@@ -612,9 +612,9 @@ impl VerificationTest for TokenCountingConsistencyTest {
             
             // Create agents for both streaming and non-streaming modes
             let mut streaming_agent = match (config.provider, config.model_id.as_str()) {
-                (ProviderType::Bedrock, "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+                (ProviderType::Bedrock, "us.anthropic.claude-haiku-4-5-20251001-v1:0") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Follow instructions exactly.")
                         .with_streaming(true)
                         .build()
@@ -665,9 +665,9 @@ impl VerificationTest for TokenCountingConsistencyTest {
             };
             
             let mut non_streaming_agent = match (config.provider, config.model_id.as_str()) {
-                (ProviderType::Bedrock, "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+                (ProviderType::Bedrock, "us.anthropic.claude-haiku-4-5-20251001-v1:0") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Follow instructions exactly.")
                         .with_streaming(false)
                         .build()

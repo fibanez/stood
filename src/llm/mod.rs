@@ -17,7 +17,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Use AWS Bedrock (cloud)
 //!     let mut bedrock_agent = Agent::builder()
-//!         .model(Bedrock::Claude35Haiku)
+//!         .model(Bedrock::ClaudeHaiku45)
 //!         .build().await?;
 //!     
 //!     // Use LM Studio (local)

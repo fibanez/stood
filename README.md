@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create an agent with custom configuration and remote MCP tools
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant with access to Acme Corp tools")
         .temperature(0.7)
         .max_tokens(1000)
@@ -170,7 +170,7 @@ let agent = Agent::builder()
 // Agent-based evaluation with specialized evaluator
 // First create the evaluator agent
 let evaluator = Agent::builder()
-    .model(Bedrock::Claude35Haiku)
+    .model(Bedrock::ClaudeHaiku45)
     .system_prompt("You are a critical evaluator. Assess task completion quality.")
     .build().await?;
 

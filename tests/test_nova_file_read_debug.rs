@@ -117,14 +117,14 @@ async fn test_claude_file_read_control() -> Result<(), Box<dyn std::error::Error
 
     // Create agent with Claude
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant. When asked to read a file, use the file_read tool.")
         .tool(Box::new(FileReadTool::new()))
         .with_log_level(LogLevel::Debug)
         .build()
         .await?;
 
-    println!("\n🤖 Agent created with Claude 3.5 Haiku");
+    println!("\n🤖 Agent created with Claude Haiku 4.5");
 
     // Test: Direct path request (same as Nova test 1)
     println!("\n=== Claude Direct Path Request ===");

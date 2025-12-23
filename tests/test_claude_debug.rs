@@ -69,9 +69,9 @@ async fn test_claude_debug() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>,
     ];
 
-    // Create agent with Claude 3.5 Haiku
+    // Create agent with Claude Haiku 4.5
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant.")
         .with_streaming(true)
         .tools(tools)
@@ -79,7 +79,7 @@ async fn test_claude_debug() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    println!("🤖 Agent created with Claude 3.5 Haiku");
+    println!("🤖 Agent created with Claude Haiku 4.5");
     
     // Simple test
     println!("\n=== Simple Test ===");

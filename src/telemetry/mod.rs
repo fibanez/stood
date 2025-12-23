@@ -16,7 +16,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Telemetry with smart auto-detection (recommended)
 //!     let mut agent = Agent::builder()
-//!         .model(Bedrock::Claude35Haiku)
+//!         .model(Bedrock::ClaudeHaiku45)
 //!         .with_telemetry_from_env()  // Auto-detects OTLP endpoints
 //!         .build().await?;
 //!     
@@ -43,7 +43,7 @@
 //!         .with_log_level(crate::telemetry::LogLevel::INFO);
 //!     
 //!     let mut agent = Agent::builder()
-//!         .model(Bedrock::Claude35Haiku)
+//!         .model(Bedrock::ClaudeHaiku45)
 //!         .with_telemetry(config)
 //!         .build().await?;
 //!     

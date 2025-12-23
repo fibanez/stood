@@ -19,13 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_service_name("my-agent");
     
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .with_telemetry(config)
         .build().await?;
 
     // Option 2: Environment-based with auto-detection
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .with_telemetry_from_env()
         .build().await?;
 

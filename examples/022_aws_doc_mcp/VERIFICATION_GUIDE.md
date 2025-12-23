@@ -33,9 +33,9 @@ verify_mcp_tools(&mut mcp_client).await?;
 ```rust
 // One line to add MCP tools to agent
 let mut agent = Agent::builder()
-    .model(Bedrock::Claude35Haiku)
+    .model(Bedrock::ClaudeHaiku45)
     .system_prompt("You are an AWS expert...")
-    .with_mcp_client(mcp_client, Some("aws_docs_".to_string())).await?  // 🎯 NEW!
+    .with_mcp_client(mcp_client, Some("aws_docs_".to_string())).await?  // NEW!
     .build().await?;
 ```
 

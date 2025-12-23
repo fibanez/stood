@@ -11,9 +11,9 @@ async fn test_new_provider_architecture_demo() {
     // Models are pure metadata, providers own all logic
     
     // 1. Test model metadata system
-    let claude_model = Bedrock::Claude35Sonnet;
+    let claude_model = Bedrock::ClaudeSonnet45;
     assert_eq!(claude_model.provider(), ProviderType::Bedrock);
-    assert_eq!(claude_model.model_id(), "anthropic.claude-3-5-sonnet-20241022-v2:0");
+    assert_eq!(claude_model.model_id(), "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
     assert_eq!(claude_model.context_window(), 200_000);
     assert_eq!(claude_model.max_output_tokens(), 8_192);
     
@@ -46,8 +46,8 @@ async fn test_new_provider_architecture_demo() {
                 
                 // Test supported models
                 let models = provider.supported_models();
-                assert!(models.contains(&"anthropic.claude-3-5-sonnet-20241022-v2:0"));
-                assert!(models.contains(&"amazon.nova-lite-v1:0"));
+                assert!(models.contains(&"us.anthropic.claude-sonnet-4-5-20250929-v1:0"));
+                assert!(models.contains(&"us.amazon.nova-lite-v1:0"));
                 
                 println!("✅ BedrockProvider successfully created with {} models", models.len());
             }
@@ -82,7 +82,7 @@ async fn test_new_provider_architecture_demo() {
     println!("   - ✅ Model metadata system working");
     println!("   - ✅ Provider registry lazy loading working"); 
     println!("   - ✅ Provider creation and capabilities working");
-    println!("   - ✅ Single API pattern: Bedrock::Claude35Sonnet works");
+    println!("   - ✅ Single API pattern: Bedrock::ClaudeSonnet45 works");
     println!("   - ✅ Type safety: Can't mix providers and models");
 }
 
@@ -91,10 +91,10 @@ async fn test_model_type_safety() {
     // This test demonstrates type safety in the new architecture
     
     // These work - correct provider/model combinations
-    let claude = Bedrock::Claude35Sonnet;
+    let claude = Bedrock::ClaudeSonnet45;
     let nova = Bedrock::NovaLite;
     let gemma = LMStudio::Gemma3_12B;
-    
+
     assert_eq!(claude.provider(), ProviderType::Bedrock);
     assert_eq!(nova.provider(), ProviderType::Bedrock);
     assert_eq!(gemma.provider(), ProviderType::LmStudio);

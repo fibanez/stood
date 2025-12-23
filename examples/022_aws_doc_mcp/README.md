@@ -100,7 +100,7 @@ let mut mcp_client = create_aws_docs_mcp_client().await?;
 
 // Step 2: Create agent using NEW simple method
 let mut agent = Agent::builder()
-    .model(Bedrock::Claude35Haiku)
+    .model(Bedrock::ClaudeHaiku45)
     .system_prompt("You are an AWS expert with access to comprehensive AWS documentation...")
     .with_mcp_client(mcp_client, Some("aws_docs_".to_string())).await? // ONE LINE!
     .build()

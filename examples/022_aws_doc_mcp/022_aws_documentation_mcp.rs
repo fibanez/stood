@@ -160,9 +160,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Step 3: Create agent using NEW simple with_mcp_client() method
     println!("\n🤖 Creating agent with NEW simple MCP integration...");
-    
+
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt(
             "You are an AWS expert assistant with access to comprehensive AWS documentation. \
              Always use the aws_docs_search_documentation tool to get authoritative information \

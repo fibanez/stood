@@ -39,14 +39,14 @@ impl VerificationTest for BasicChatTest {
                 }
                 ProviderType::Bedrock => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Keep responses brief.")
                         .build()
                         .await?
                 }
                 ProviderType::Anthropic => {
                     Agent::builder()
-                        .model(Anthropic::Claude35Haiku)
+                        .model(Anthropic::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Keep responses brief.")
                         .build()
                         .await?
@@ -109,14 +109,14 @@ impl VerificationTest for MultiTurnConversationTest {
                 }
                 ProviderType::Bedrock => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant.")
                         .build()
                         .await?
                 }
                 ProviderType::Anthropic => {
                     Agent::builder()
-                        .model(Anthropic::Claude35Haiku)
+                        .model(Anthropic::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant.")
                         .build()
                         .await?
@@ -190,7 +190,7 @@ impl VerificationTest for BasicToolCallingTest {
                 }
                 ProviderType::Bedrock => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
                         .tool(Box::new(CalculatorTool))
                         .build()
@@ -198,7 +198,7 @@ impl VerificationTest for BasicToolCallingTest {
                 }
                 ProviderType::Anthropic => {
                     Agent::builder()
-                        .model(Anthropic::Claude35Haiku)
+                        .model(Anthropic::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
                         .tool(Box::new(CalculatorTool))
                         .build()
@@ -274,7 +274,7 @@ impl VerificationTest for MultipleToolsTest {
                 }
                 ProviderType::Bedrock => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools.")
                         .tool(Box::new(CalculatorTool))
                         .tool(Box::new(CurrentTimeTool))
@@ -283,7 +283,7 @@ impl VerificationTest for MultipleToolsTest {
                 }
                 ProviderType::Anthropic => {
                     Agent::builder()
-                        .model(Anthropic::Claude35Haiku)
+                        .model(Anthropic::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools.")
                         .tool(Box::new(CalculatorTool))
                         .tool(Box::new(CurrentTimeTool))
@@ -368,7 +368,7 @@ impl VerificationTest for BasicStreamingTest {
                 }
                 (ProviderType::Bedrock, "claude-3-5-haiku") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant. Keep responses brief.")
                         .execution_mode(AgentExecutionMode::Streaming)
                         .build()
@@ -507,7 +507,7 @@ impl VerificationTest for StreamingWithToolsTest {
                 }
                 (ProviderType::Bedrock, "claude-3-5-haiku") => {
                     Agent::builder()
-                        .model(Bedrock::Claude35Haiku)
+                        .model(Bedrock::ClaudeHaiku45)
                         .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
                         .tool(Box::new(CalculatorTool))
                         .execution_mode(AgentExecutionMode::Streaming)

@@ -26,9 +26,9 @@ impl AgenticChat {
         // Default system prompt
         let system_prompt = "Answer questions directly and concisely. Do not explain your reasoning or why you are or are not using tools. Provide the most precise, immediate response to the query.";
 
-        // Create agent with Claude Haiku 3.5 (default model) and built-in tools
+        // Create agent with Claude Haiku 4.5 (default model) and built-in tools
         let agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .temperature(0.7)
             .max_tokens(4096)
             .system_prompt(system_prompt)

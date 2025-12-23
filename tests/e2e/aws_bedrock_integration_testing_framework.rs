@@ -33,11 +33,22 @@ pub struct IntegrationTestConfig {
 /// Bedrock model configurations for testing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BedrockModel {
+    // Claude 4.5 models (recommended)
+    ClaudeHaiku45,
+    ClaudeSonnet45,
+    ClaudeOpus45,
+    // Legacy models (deprecated)
+    #[deprecated(note = "Use ClaudeHaiku45 instead")]
     ClaudeHaiku35,
+    #[deprecated(note = "Use ClaudeSonnet45 instead")]
     ClaudeSonnet3,
+    #[deprecated(note = "Use ClaudeOpus45 instead")]
     ClaudeOpus3,
+    #[deprecated(note = "Use ClaudeSonnet45 instead")]
     Claude35Sonnet,
+    #[deprecated(note = "Use ClaudeHaiku45 instead")]
     Claude35Haiku,
+    // Nova models
     NovaLite,
     NovaPro,
     NovaMicro,

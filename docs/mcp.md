@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create agent with MCP integration
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant with access to MCP tools.")
         .with_mcp_client(mcp_client, Some("aws_".to_string())).await?
         .build().await?;
@@ -57,7 +57,7 @@ ws_client.connect().await?;
 
 // Create agent with multiple MCP servers
 let mut agent = Agent::builder()
-    .model(Bedrock::Claude35Haiku)
+    .model(Bedrock::ClaudeHaiku45)
     .system_prompt("You are an assistant with access to multiple MCP tool sets.")
     .with_mcp_clients(vec![
         (stdio_client, Some("aws_".to_string())),    // AWS tools with aws_ prefix

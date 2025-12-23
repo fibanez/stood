@@ -438,7 +438,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         ModelConfig::BedrockClaudeHaiku => {
             let mut builder = Agent::builder()
-                .model(Bedrock::Claude35Haiku)  // Claude 3.5 Haiku via AWS Bedrock
+                .model(Bedrock::ClaudeHaiku45)  // Claude Haiku 4.5 via AWS Bedrock
                 .system_prompt("You are a helpful assistant. Prepare a plan to provide an answer. If you can answer confidently, answer directly, but be succint. Don't explain your logic, just provide the user's answer.")
                 .with_streaming(streaming_enabled)
                 .tools(tools)

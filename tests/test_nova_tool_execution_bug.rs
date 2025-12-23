@@ -115,7 +115,7 @@ async fn test_claude_tool_execution_control() -> Result<(), Box<dyn std::error::
 
     // Create agent with Claude - non-streaming
     let mut agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant with access to tools. When asked to do math, use the simple_calculator tool.")
         .with_streaming(false)
         .tools(tools)
@@ -123,7 +123,7 @@ async fn test_claude_tool_execution_control() -> Result<(), Box<dyn std::error::
         .build()
         .await?;
 
-    println!("🤖 Agent created with Claude 3.5 Haiku (non-streaming)");
+    println!("🤖 Agent created with Claude Haiku 4.5 (non-streaming)");
     
     // Same tool request
     println!("\n=== Tool Execution Test ===");

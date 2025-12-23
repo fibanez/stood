@@ -182,7 +182,7 @@ async fn setup_multi_round_agent(mode: &str, tasks: Arc<Mutex<Vec<TaskTiming>>>,
     let timing_handler = MultiRoundHandler::new(tasks, mode, rounds);
     
     let agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .temperature(0.0)
         .max_tokens(1500)  // Increased for larger prompts
         .tools(vec![task_executor()])

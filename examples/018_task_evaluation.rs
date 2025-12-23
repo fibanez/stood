@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Create agent with task evaluation strategy (this is the DEFAULT behavior)
     let mut travel_agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt(
             "You are a knowledgeable travel advisor specializing in comprehensive trip planning. \
             Your role is to help travelers create detailed, practical travel plans.\n\n\

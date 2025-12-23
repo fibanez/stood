@@ -7,7 +7,7 @@
 //! cargo run --bin verify -- --provider lm_studio  # All tests, LM Studio only
 //! cargo run --bin verify -- --test builtin_file_read --provider bedrock # Single test, specific provider
 //! cargo run --bin verify -- --test tool_registry  # Single test, all providers
-//! cargo run --bin verify -- --model claude-3-5-haiku # Model-specific tests across providers
+//! cargo run --bin verify -- --model claude-haiku-4-5 # Model-specific tests across providers
 //! cargo run --bin verify -- tools --debug         # Enable debug output
 
 use clap::{Arg, Command};
@@ -714,42 +714,42 @@ impl VerificationRunner {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "basic_chat".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockBasicChat,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "multi_turn".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockMultiTurn,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "health_check".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockHealthCheck,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "capabilities".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockCapabilities,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "configuration".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockConfiguration,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "provider_registry".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::ProviderRegistryBedrock,
                             },
                             // Nova Micro test cases (smallest/cheapest with tool support)
@@ -847,35 +847,35 @@ impl VerificationRunner {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "tool_registry".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockToolRegistry,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "builtin_calculator".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockToolBuiltinCalculator,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "builtin_file_read".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockToolBuiltinFileRead,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "custom_macro".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockToolCustomMacro,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "parallel_execution".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockToolParallelExecution,
                             },
                             // Nova Micro tool test cases (smallest/cheapest with tool support)
@@ -946,14 +946,14 @@ impl VerificationRunner {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "basic_streaming".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockBasicStreaming,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "streaming_with_tools".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::BedrockStreamingWithTools,
                             },
                             // Nova Micro streaming tests
@@ -1017,28 +1017,28 @@ impl VerificationRunner {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "streaming_token_counting".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::ClaudeStreamingTokenCounting,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "non_streaming_token_counting".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::ClaudeNonStreamingTokenCounting,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "streaming_token_counting_with_tools".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::ClaudeStreamingTokenCountingWithTools,
                             },
                             TestCase {
                                 provider: provider.clone(),
                                 suite: suite.clone(),
                                 test_name: "token_counting_consistency".to_string(),
-                                model_name: "claude-3-5-haiku".to_string(),
+                                model_name: "claude-haiku-4-5".to_string(),
                                 test_id: TestId::ClaudeTokenCountingConsistency,
                             },
                             // Nova Micro token counting tests
@@ -1183,10 +1183,10 @@ impl VerificationRunner {
                 };
                 self.test_token_counting_consistency(provider_str, &test_case.model_name).await.map_err(|e| format!("{}", e).into())
             },
-            TestId::ClaudeStreamingTokenCounting => self.test_token_counting_streaming("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
-            TestId::ClaudeNonStreamingTokenCounting => self.test_token_counting_non_streaming("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
-            TestId::ClaudeStreamingTokenCountingWithTools => self.test_token_counting_streaming_with_tools("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
-            TestId::ClaudeTokenCountingConsistency => self.test_token_counting_consistency("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
+            TestId::ClaudeStreamingTokenCounting => self.test_token_counting_streaming("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
+            TestId::ClaudeNonStreamingTokenCounting => self.test_token_counting_non_streaming("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
+            TestId::ClaudeStreamingTokenCountingWithTools => self.test_token_counting_streaming_with_tools("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
+            TestId::ClaudeTokenCountingConsistency => self.test_token_counting_consistency("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0").await.map_err(|e| format!("{}", e).into()),
             TestId::NovaStreamingTokenCounting => self.test_token_counting_streaming("bedrock", "us.amazon.nova-micro-v1:0").await.map_err(|e| format!("{}", e).into()),
             TestId::NovaNonStreamingTokenCounting => self.test_token_counting_non_streaming("bedrock", "us.amazon.nova-micro-v1:0").await.map_err(|e| format!("{}", e).into()),
             TestId::NovaStreamingTokenCountingWithTools => self.test_token_counting_streaming_with_tools("bedrock", "us.amazon.nova-micro-v1:0").await.map_err(|e| format!("{}", e).into()),
@@ -1360,7 +1360,7 @@ impl VerificationRunner {
         }
         
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .system_prompt("You are a helpful assistant. Respond briefly.")
             .build()
             .await
@@ -1390,7 +1390,7 @@ impl VerificationRunner {
         }
         
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .system_prompt("You are a helpful assistant. Respond briefly.")
             .build()
             .await
@@ -1588,7 +1588,7 @@ impl VerificationRunner {
         
         // Test temperature and max_tokens configuration
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .temperature(0.1)
             .max_tokens(50)
             .system_prompt("Respond with exactly one word: 'test'")
@@ -2090,7 +2090,7 @@ impl VerificationRunner {
         use stood::tools::builtin::CalculatorTool;
 
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .system_prompt("You are a helpful assistant. When asked to calculate something, use the calculator tool.")
             .tool(Box::new(CalculatorTool::new()))
             .build()
@@ -2703,7 +2703,7 @@ impl VerificationRunner {
         use stood::llm::models::Bedrock;
         
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .system_prompt("You are a helpful assistant. Keep responses brief.")
             .with_streaming(true)
             .build()
@@ -2739,7 +2739,7 @@ impl VerificationRunner {
         use stood::tools::builtin::CalculatorTool;
         
         let mut agent = Agent::builder()
-            .model(Bedrock::Claude35Haiku)
+            .model(Bedrock::ClaudeHaiku45)
             .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
             .tool(Box::new(CalculatorTool::new()))
             .with_streaming(true)
@@ -2888,9 +2888,9 @@ impl VerificationRunner {
                     .build()
                     .await?
             }
-            ("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+            ("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0") => {
                 Agent::builder()
-                    .model(Bedrock::Claude35Haiku)
+                    .model(Bedrock::ClaudeHaiku45)
                     .system_prompt("You are a helpful assistant. Respond concisely.")
                     .with_streaming(true)
                     .build()
@@ -2971,9 +2971,9 @@ impl VerificationRunner {
                     .build()
                     .await?
             }
-            ("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+            ("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0") => {
                 Agent::builder()
-                    .model(Bedrock::Claude35Haiku)
+                    .model(Bedrock::ClaudeHaiku45)
                     .system_prompt("You are a helpful assistant. Respond concisely.")
                     .with_streaming(false)
                     .build()
@@ -3058,9 +3058,9 @@ impl VerificationRunner {
                     .build()
                     .await?
             }
-            ("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+            ("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0") => {
                 Agent::builder()
-                    .model(Bedrock::Claude35Haiku)
+                    .model(Bedrock::ClaudeHaiku45)
                     .system_prompt("You are a helpful assistant with access to tools. Use the calculator tool for math problems.")
                     .tool(Box::new(CalculatorTool::new()))
                     .with_streaming(true)
@@ -3151,9 +3151,9 @@ impl VerificationRunner {
                     .build()
                     .await?
             }
-            ("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+            ("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0") => {
                 Agent::builder()
-                    .model(Bedrock::Claude35Haiku)
+                    .model(Bedrock::ClaudeHaiku45)
                     .system_prompt("You are a helpful assistant. Follow instructions exactly.")
                     .with_streaming(true)
                     .build()
@@ -3196,9 +3196,9 @@ impl VerificationRunner {
                     .build()
                     .await?
             }
-            ("bedrock", "us.anthropic.claude-3-5-haiku-20241022-v1:0") => {
+            ("bedrock", "us.anthropic.claude-haiku-4-5-20241022-v1:0") => {
                 Agent::builder()
-                    .model(Bedrock::Claude35Haiku)
+                    .model(Bedrock::ClaudeHaiku45)
                     .system_prompt("You are a helpful assistant. Follow instructions exactly.")
                     .with_streaming(false)
                     .build()
@@ -3273,7 +3273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(Arg::new("model")
             .long("model")
             .short('m')
-            .help("Model name to filter tests (e.g., claude-3-5-haiku, google/gemma-3-27b)")
+            .help("Model name to filter tests (e.g., claude-haiku-4-5, google/gemma-3-27b)")
             .action(clap::ArgAction::Append))
         .arg(Arg::new("debug")
             .long("debug")

@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_local_testing_setup() {
         // Verify that we have a local alternative to Bedrock
-        let bedrock_model = crate::llm::models::Bedrock::Claude35Sonnet;
+        let bedrock_model = crate::llm::models::Bedrock::ClaudeSonnet45;
         let lm_studio_model = LMStudio::Gemma3_12B;
         
         println!("🌐 Bedrock (cloud): {} via {:?}", 

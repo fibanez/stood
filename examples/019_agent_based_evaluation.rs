@@ -83,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the chef evaluator agent (specialized for culinary assessment)
     let chef_evaluator = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt(
             "You are a professional chef evaluating recipe completeness. \
             Assess if this recipe meets restaurant-quality standards for home cooks.\n\n\
@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the main recipe developer agent with chef evaluation
     let mut recipe_agent = Agent::builder()
-        .model(Bedrock::Claude35Haiku)
+        .model(Bedrock::ClaudeHaiku45)
         .system_prompt(
             "You are a recipe developer creating detailed cooking instructions. \
             Use available tools to gather ingredient data, then apply your culinary \

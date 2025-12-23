@@ -19,7 +19,7 @@
 //!     
 //!     // Use Bedrock (cloud)
 //!     let mut agent = Agent::builder()
-//!         .model(Bedrock::Claude35Haiku)
+//!         .model(Bedrock::ClaudeHaiku45)
 //!         .system_prompt("You are a helpful assistant")
 //!         .build().await?;
 //!         
@@ -52,7 +52,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut agent = Agent::builder()
-//!         .model(Bedrock::Claude35Haiku)
+//!         .model(Bedrock::ClaudeHaiku45)
 //!         .tool(search_web())
 //!         .with_builtin_tools()
 //!         .build().await?;
@@ -353,7 +353,7 @@ impl Default for AgentConfig {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Use Bedrock (cloud)
 /// let mut bedrock_agent = Agent::builder()
-///     .model(Bedrock::Claude35Haiku)
+///     .model(Bedrock::ClaudeHaiku45)
 ///     .build().await?;
 /// let result = bedrock_agent.execute("Explain quantum computing").await?;
 /// println!("Bedrock: {}", result.response);
@@ -374,7 +374,7 @@ impl Default for AgentConfig {
 /// # use stood::llm::models::Bedrock;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut agent = Agent::builder()
-///     .model(Bedrock::Claude35Haiku)
+///     .model(Bedrock::ClaudeHaiku45)
 ///     .with_builtin_tools()
 ///     .build().await?;
 ///     
@@ -445,18 +445,25 @@ impl Clone for Agent {
 }
 
 /// Utility function to create model instances from provider and model_id
+#[allow(deprecated)]
 fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn LlmModel> {
     match provider {
         ProviderType::Bedrock => {
             match model_id {
+                // Claude 4.5 models (recommended)
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeSonnet45),
+                "us.anthropic.claude-haiku-4-5-20251001-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45),
+                "us.anthropic.claude-opus-4-5-20251101-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeOpus45),
+                // Legacy Claude models (deprecated but still supported)
                 "us.anthropic.claude-3-5-sonnet-20241022-v2:0" => Box::new(crate::llm::models::Bedrock::Claude35Sonnet),
                 "us.anthropic.claude-3-5-haiku-20241022-v1:0" => Box::new(crate::llm::models::Bedrock::Claude35Haiku),
                 "us.anthropic.claude-3-haiku-20240307-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeHaiku3),
                 "us.anthropic.claude-3-opus-20240229-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeOpus3),
+                // Nova models
                 "us.amazon.nova-lite-v1:0" => Box::new(crate::llm::models::Bedrock::NovaLite),
                 "us.amazon.nova-pro-v1:0" => Box::new(crate::llm::models::Bedrock::NovaPro),
                 "us.amazon.nova-micro-v1:0" => Box::new(crate::llm::models::Bedrock::NovaMicro),
-                _ => Box::new(crate::llm::models::Bedrock::Claude35Haiku), // Default fallback
+                _ => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45), // Default fallback
             }
         }
         ProviderType::LmStudio => {
@@ -469,7 +476,7 @@ fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn 
                 _ => Box::new(crate::llm::models::LMStudio::Gemma3_12B), // Default fallback
             }
         }
-        _ => Box::new(crate::llm::models::Bedrock::Claude35Haiku), // Default fallback for other providers
+        _ => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45), // Default fallback for other providers
     }
 }
 
@@ -881,7 +888,7 @@ impl Agent {
 /// # use stood::llm::models::Bedrock;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let agent = Agent::builder()
-///     .model(Bedrock::Claude35Haiku)
+///     .model(Bedrock::ClaudeHaiku45)
 ///     .temperature(0.7)
 ///     .build().await?;
 /// # Ok(())
@@ -894,7 +901,7 @@ impl Agent {
 /// # use stood::llm::models::Bedrock;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let agent = Agent::builder()
-///     .model(Bedrock::Claude35Sonnet)     // Better for code
+///     .model(Bedrock::ClaudeSonnet45)     // Better for code
 ///     .temperature(0.1)                   // More deterministic
 ///     .max_tokens(8192)                   // Longer code responses
 ///     .system_prompt(
@@ -955,7 +962,7 @@ impl AgentBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Use Bedrock (costs money)
     /// let agent = Agent::builder()
-    ///     .model(Bedrock::Claude35Sonnet)
+    ///     .model(Bedrock::ClaudeSonnet45)
     ///     .build()
     ///     .await?;
     ///
@@ -1564,7 +1571,7 @@ impl AgentBuilder {
     /// 
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator = Agent::builder()
-    ///     .model(Bedrock::Claude35Haiku)
+    ///     .model(Bedrock::ClaudeHaiku45)
     ///     .system_prompt("You are a critical evaluator. Assess task completion quality.")
     ///     .build().await?;
     /// 
@@ -1658,7 +1665,7 @@ impl AgentBuilder {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
-    ///     .model(Bedrock::Claude35Haiku)
+    ///     .model(Bedrock::ClaudeHaiku45)
     ///     .with_credentials(
     ///         "AKIA...".to_string(),
     ///         "secret".to_string(),
@@ -1698,7 +1705,7 @@ impl AgentBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Deprecated - use with_credentials instead
     /// let agent = Agent::builder()
-    ///     .model(Bedrock::Claude35Haiku)
+    ///     .model(Bedrock::ClaudeHaiku45)
     ///     .with_credentials_and_region(
     ///         "AKIA...".to_string(),
     ///         "secret".to_string(),
@@ -1785,8 +1792,8 @@ impl AgentBuilder {
     pub async fn build(mut self) -> Result<Agent> {
         // Use provided model or create default
         let model = self.model.unwrap_or_else(|| {
-            // Default to Claude 3.5 Haiku
-            Box::new(crate::llm::models::Bedrock::Claude35Haiku)
+            // Default to Claude Haiku 4.5
+            Box::new(crate::llm::models::Bedrock::ClaudeHaiku45)
         });
         
         // Update config with model info if not already set
@@ -1895,7 +1902,7 @@ mod tests {
     #[tokio::test]
     async fn test_agent_builder_custom() {
         let agent = Agent::builder()
-            .model(crate::llm::models::Bedrock::Claude35Haiku)
+            .model(crate::llm::models::Bedrock::ClaudeHaiku45)
             .temperature(0.5)
             .max_tokens(2048)
             .system_prompt("You are a helpful assistant")
@@ -1903,7 +1910,7 @@ mod tests {
             .await.unwrap();
 
         assert_eq!(agent.config().provider, crate::llm::traits::ProviderType::Bedrock);
-        assert_eq!(agent.config().model_id, "us.anthropic.claude-3-5-haiku-20241022-v1:0");
+        assert_eq!(agent.config().model_id, "us.anthropic.claude-haiku-4-5-20251001-v1:0");
         assert_eq!(agent.config().temperature, Some(0.5));
         assert_eq!(agent.config().max_tokens, Some(2048));
         assert_eq!(
@@ -2160,7 +2167,7 @@ mod tests {
 
         let agent = Agent::build_internal(
             Arc::new(crate::llm::providers::bedrock::BedrockProvider::new(None).await.unwrap()),
-            Box::new(crate::llm::models::Bedrock::Claude35Haiku),
+            Box::new(crate::llm::models::Bedrock::ClaudeHaiku45),
             config,
             vec![],
             crate::agent::config::ExecutionConfig::default(),

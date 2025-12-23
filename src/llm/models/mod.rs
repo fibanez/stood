@@ -13,21 +13,70 @@ use crate::llm::traits::{LlmModel, ModelCapabilities, ProviderType};
 pub mod Bedrock {
     use super::*;
 
+    // ============================================================================
+    // Claude 4.5 Models (Current - Recommended)
+    // ============================================================================
+
+    /// Claude Sonnet 4.5 via AWS Bedrock - balanced performance model
+    ///
+    /// The smartest model for complex agents and coding tasks.
+    /// Released: September 29, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeSonnet45;
+
+    /// Claude Haiku 4.5 via AWS Bedrock - fastest model
+    ///
+    /// Fastest model with near-frontier intelligence.
+    /// Released: October 1, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeHaiku45;
+
+    /// Claude Opus 4.5 via AWS Bedrock - premium model
+    ///
+    /// Combines maximum intelligence with practical performance.
+    /// Released: November 1, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeOpus45;
+
+    // ============================================================================
+    // Legacy Claude Models (Deprecated)
+    // ============================================================================
+
     /// Claude 3.5 Sonnet v2 via AWS Bedrock
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeSonnet45` instead. Claude 3.5 Sonnet will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct Claude35Sonnet;
 
-    /// Claude 3.5 Haiku via AWS Bedrock  
+    /// Claude 3.5 Haiku via AWS Bedrock
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeHaiku45` instead. Claude 3.5 Haiku will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct Claude35Haiku;
 
     /// Claude 3 Haiku via AWS Bedrock
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeHaiku45` instead. Claude 3 Haiku will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct ClaudeHaiku3;
 
     /// Claude 3 Opus via AWS Bedrock
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeOpus45` instead. Claude 3 Opus will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct ClaudeOpus3;
+
+    // ============================================================================
+    // Amazon Nova Models
+    // ============================================================================
 
     /// Amazon Nova Lite via AWS Bedrock
     #[derive(Debug, Clone, Copy)]
@@ -43,6 +92,120 @@ pub mod Bedrock {
 
     // Implement LlmModel trait for all Bedrock models
 
+    // ============================================================================
+    // Claude 4.5 Model Implementations
+    // ============================================================================
+
+    impl LlmModel for ClaudeSonnet45 {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Sonnet 4.5"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    impl LlmModel for ClaudeHaiku45 {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Haiku 4.5"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.8
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    impl LlmModel for ClaudeOpus45 {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Opus 4.5"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.6
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    // ============================================================================
+    // Legacy Claude Model Implementations (Deprecated)
+    // ============================================================================
+
+    #[allow(deprecated)]
     impl LlmModel for Claude35Sonnet {
         fn model_id(&self) -> &'static str {
             // Note: us. prefix required for cross-region inference in AWS Bedrock
@@ -78,6 +241,7 @@ pub mod Bedrock {
         }
     }
 
+    #[allow(deprecated)]
     impl LlmModel for Claude35Haiku {
         fn model_id(&self) -> &'static str {
             // Note: us. prefix required for cross-region inference in AWS Bedrock
@@ -113,6 +277,7 @@ pub mod Bedrock {
         }
     }
 
+    #[allow(deprecated)]
     impl LlmModel for ClaudeHaiku3 {
         fn model_id(&self) -> &'static str {
             // Note: us. prefix required for cross-region inference in AWS Bedrock
@@ -148,6 +313,7 @@ pub mod Bedrock {
         }
     }
 
+    #[allow(deprecated)]
     impl LlmModel for ClaudeOpus3 {
         fn model_id(&self) -> &'static str {
             // Note: us. prefix required for cross-region inference in AWS Bedrock
@@ -485,23 +651,175 @@ pub mod LMStudio {
     }
 }
 
-/// Anthropic Direct API provider models  
+/// Anthropic Direct API provider models
 #[allow(non_snake_case)]
 pub mod Anthropic {
     use super::*;
 
+    // ============================================================================
+    // Claude 4.5 Models (Current - Recommended)
+    // ============================================================================
+
+    /// Claude Sonnet 4.5 via Anthropic Direct API - balanced performance model
+    ///
+    /// The smartest model for complex agents and coding tasks.
+    /// Released: September 29, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeSonnet45;
+
+    /// Claude Haiku 4.5 via Anthropic Direct API - fastest model
+    ///
+    /// Fastest model with near-frontier intelligence.
+    /// Released: October 1, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeHaiku45;
+
+    /// Claude Opus 4.5 via Anthropic Direct API - premium model
+    ///
+    /// Combines maximum intelligence with practical performance.
+    /// Released: November 1, 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct ClaudeOpus45;
+
+    // ============================================================================
+    // Legacy Claude Models (Deprecated)
+    // ============================================================================
+
     /// Claude 3.5 Sonnet via Anthropic Direct API
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeSonnet45` instead. Claude 3.5 Sonnet will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct Claude35Sonnet;
 
     /// Claude 3.5 Haiku via Anthropic Direct API
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeHaiku45` instead. Claude 3.5 Haiku will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct Claude35Haiku;
 
     /// Claude 3 Opus via Anthropic Direct API
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use `ClaudeOpus45` instead. Claude 3 Opus will be removed in a future release."
+    )]
     #[derive(Debug, Clone, Copy)]
     pub struct Claude3Opus;
 
+    // ============================================================================
+    // Claude 4.5 Model Implementations
+    // ============================================================================
+
+    impl LlmModel for ClaudeSonnet45 {
+        fn model_id(&self) -> &'static str {
+            "claude-sonnet-4-5-20250929"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Anthropic
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Sonnet 4.5 (Direct)"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    impl LlmModel for ClaudeHaiku45 {
+        fn model_id(&self) -> &'static str {
+            "claude-haiku-4-5-20251001"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Anthropic
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Haiku 4.5 (Direct)"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.8
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    impl LlmModel for ClaudeOpus45 {
+        fn model_id(&self) -> &'static str {
+            "claude-opus-4-5-20251101"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Anthropic
+        }
+        fn context_window(&self) -> usize {
+            200_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: true,
+                context_window: Some(200_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Claude Opus 4.5 (Direct)"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.6
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    // ============================================================================
+    // Legacy Claude Model Implementations (Deprecated)
+    // ============================================================================
+
+    #[allow(deprecated)]
     impl LlmModel for Claude35Sonnet {
         fn model_id(&self) -> &'static str {
             "claude-3-5-sonnet-20241022"
@@ -536,6 +854,7 @@ pub mod Anthropic {
         }
     }
 
+    #[allow(deprecated)]
     impl LlmModel for Claude35Haiku {
         fn model_id(&self) -> &'static str {
             "claude-3-5-haiku-20241022"
@@ -570,6 +889,7 @@ pub mod Anthropic {
         }
     }
 
+    #[allow(deprecated)]
     impl LlmModel for Claude3Opus {
         fn model_id(&self) -> &'static str {
             "claude-3-opus-20240229"
@@ -605,5 +925,10 @@ pub mod Anthropic {
     }
 }
 
-// Provider modules are available as: use stood::llm::models::Bedrock::Claude35Sonnet;
+// Provider modules are available as: use stood::llm::models::Bedrock::ClaudeHaiku45;
 // or via the top-level re-export: use stood::llm::{Bedrock, LMStudio, Anthropic};
+//
+// Recommended models (Claude 4.5):
+//   - Bedrock::ClaudeHaiku45  - Fastest, cost-effective
+//   - Bedrock::ClaudeSonnet45 - Balanced performance
+//   - Bedrock::ClaudeOpus45   - Maximum intelligence
