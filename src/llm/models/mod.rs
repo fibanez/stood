@@ -39,6 +39,28 @@ pub mod Bedrock {
     pub struct ClaudeOpus45;
 
     // ============================================================================
+    // Model Aliases - Use these for automatic upgrades to latest versions
+    // ============================================================================
+
+    /// Alias for the latest Claude Sonnet model (currently 4.5)
+    ///
+    /// Using this alias ensures your application automatically uses the latest
+    /// Sonnet model when upgrading the Stood library.
+    pub type SonnetLatest = ClaudeSonnet45;
+
+    /// Alias for the latest Claude Haiku model (currently 4.5)
+    ///
+    /// Using this alias ensures your application automatically uses the latest
+    /// Haiku model when upgrading the Stood library.
+    pub type HaikuLatest = ClaudeHaiku45;
+
+    /// Alias for the latest Claude Opus model (currently 4.5)
+    ///
+    /// Using this alias ensures your application automatically uses the latest
+    /// Opus model when upgrading the Stood library.
+    pub type OpusLatest = ClaudeOpus45;
+
+    // ============================================================================
     // Legacy Claude Models (Deprecated)
     // ============================================================================
 
@@ -89,6 +111,27 @@ pub mod Bedrock {
     /// Amazon Nova Micro via AWS Bedrock
     #[derive(Debug, Clone, Copy)]
     pub struct NovaMicro;
+
+    /// Amazon Nova Premier via AWS Bedrock - highest capability Nova model
+    ///
+    /// Best for complex agentic workflows, multimodal tasks, and model distillation.
+    /// 300K context window, supports vision and video.
+    #[derive(Debug, Clone, Copy)]
+    pub struct NovaPremier;
+
+    /// Amazon Nova 2 Lite via AWS Bedrock - fast reasoning model
+    ///
+    /// Cost-effective model with extended thinking support.
+    /// 1M context window.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Nova2Lite;
+
+    /// Amazon Nova 2 Pro via AWS Bedrock - intelligent reasoning model
+    ///
+    /// Most capable Nova model for complex multistep tasks.
+    /// 1M context window with extended thinking.
+    #[derive(Debug, Clone, Copy)]
+    pub struct Nova2Pro;
 
     // Implement LlmModel trait for all Bedrock models
 
@@ -451,6 +494,111 @@ pub mod Bedrock {
         }
         fn default_max_tokens(&self) -> u32 {
             2_048
+        }
+    }
+
+    impl LlmModel for NovaPremier {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.amazon.nova-premier-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            300_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            5_000
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(5_000),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_vision: true,
+                context_window: Some(300_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Amazon Nova Premier"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            5_000
+        }
+    }
+
+    impl LlmModel for Nova2Lite {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.amazon.nova-2-lite-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            1_000_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            5_000
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(5_000),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: false,
+                context_window: Some(1_000_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Amazon Nova 2 Lite"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            5_000
+        }
+    }
+
+    impl LlmModel for Nova2Pro {
+        fn model_id(&self) -> &'static str {
+            // Note: us. prefix required for cross-region inference in AWS Bedrock
+            "us.amazon.nova-2-pro-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            1_000_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            5_000
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(5_000),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_vision: false,
+                context_window: Some(1_000_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Amazon Nova 2 Pro"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            5_000
         }
     }
 }

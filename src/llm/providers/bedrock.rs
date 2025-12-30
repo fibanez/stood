@@ -1249,6 +1249,9 @@ impl LlmProvider for BedrockProvider {
                 "us.amazon.nova-lite-v1:0".to_string(),
                 "us.amazon.nova-pro-v1:0".to_string(),
                 "us.amazon.nova-micro-v1:0".to_string(),
+                "us.amazon.nova-premier-v1:0".to_string(),
+                "us.amazon.nova-2-lite-v1:0".to_string(),
+                "us.amazon.nova-2-pro-v1:0".to_string(),
             ],
         }
     }
@@ -1265,6 +1268,9 @@ impl LlmProvider for BedrockProvider {
             "us.amazon.nova-lite-v1:0",
             "us.amazon.nova-pro-v1:0",
             "us.amazon.nova-micro-v1:0",
+            "us.amazon.nova-premier-v1:0",
+            "us.amazon.nova-2-lite-v1:0",
+            "us.amazon.nova-2-pro-v1:0",
         ]
     }
 
