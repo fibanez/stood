@@ -7,6 +7,22 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Duration;
 
+// ============================================================================
+// CloudWatch Log Truncation Constants
+// ============================================================================
+
+/// Maximum size for a single content field before truncation (32KB)
+const MAX_CONTENT_FIELD_SIZE: usize = 32_768;
+
+/// How much to keep at the start of truncated content (~14KB)
+const TRUNCATION_HEAD_SIZE: usize = 14_000;
+
+/// How much to keep at the end of truncated content (~14KB)
+const TRUNCATION_TAIL_SIZE: usize = 14_000;
+
+/// Maximum total size for CloudWatch Logs batch (1MB limit with headroom)
+const MAX_CLOUDWATCH_BATCH_SIZE: usize = 950_000;
+
 /// Error during span export
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {
@@ -831,35 +847,35 @@ impl CloudWatchExporter {
         let log_group = self.log_group_name();
         let log_stream = self.log_stream_name();
 
-        // Build PutLogEvents request body
+        // Build PutLogEvents request body with smart truncation
         let log_events: Vec<serde_json::Value> = events
             .iter()
             .map(|e| {
+                // Truncate large content fields to stay under limits
+                let truncated_event = truncate_log_event(e);
+                let message = serde_json::to_string(&truncated_event).unwrap_or_default();
+
+                // Log if truncation occurred
+                let original_size = serde_json::to_string(e).map(|s| s.len()).unwrap_or(0);
+                if message.len() < original_size {
+                    tracing::debug!(
+                        "Truncated log event from {} to {} bytes",
+                        original_size,
+                        message.len()
+                    );
+                }
+
                 serde_json::json!({
                     "timestamp": e.time_unix_nano / 1_000_000, // Convert nanos to millis
-                    "message": serde_json::to_string(e).unwrap_or_default()
+                    "message": message
                 })
             })
             .collect();
 
-        let mut request_body = serde_json::json!({
-            "logGroupName": log_group,
-            "logStreamName": log_stream,
-            "logEvents": log_events
-        });
+        // Split into batches if needed to stay under CloudWatch 1MB limit
+        let batches = split_into_batches(log_events, MAX_CLOUDWATCH_BATCH_SIZE);
 
-        // Include sequence token if available (for optimization)
-        {
-            let token = self.sequence_token.lock().await;
-            if let Some(ref t) = *token {
-                request_body["sequenceToken"] = serde_json::json!(t);
-            }
-        }
-
-        let body = serde_json::to_vec(&request_body)
-            .map_err(|e| ExportError::Serialization(e.to_string()))?;
-
-        // Get credentials
+        // Get credentials once for all batches
         let credentials = self
             .credentials_provider
             .resolve()
@@ -873,67 +889,93 @@ impl CloudWatchExporter {
             .trim_end_matches('/')
             .to_string();
 
-        let headers = vec![
-            (
-                "Content-Type".to_string(),
-                "application/x-amz-json-1.1".to_string(),
-            ),
-            ("Host".to_string(), host),
-            (
-                "X-Amz-Target".to_string(),
-                "Logs_20140328.PutLogEvents".to_string(),
-            ),
-        ];
-
-        // Sign the request for CloudWatch Logs service
-        let signed_headers = sign_request(
-            "POST",
-            &self.logs_endpoint,
-            &headers,
-            &body,
-            &credentials,
-            self.credentials_provider.region(),
-            "logs", // CloudWatch Logs service
-        )
-        .map_err(|e| ExportError::Auth(e.to_string()))?;
-
-        // Build and send request
-        let mut request = self.client.post(&self.logs_endpoint).body(body);
-
-        for (name, value) in signed_headers {
-            request = request.header(&name, &value);
-        }
-
-        let response = request.send().await.map_err(|e| {
-            if e.is_timeout() {
-                ExportError::Timeout(self.timeout)
-            } else {
-                ExportError::Network(e.to_string())
+        // Export each batch
+        for (batch_idx, batch) in batches.iter().enumerate() {
+            if batches.len() > 1 {
+                tracing::debug!("Exporting log batch {}/{}", batch_idx + 1, batches.len());
             }
-        })?;
 
-        let status = response.status();
-        if status.is_success() {
-            // Extract and cache the next sequence token
-            if let Ok(resp_body) = response.json::<serde_json::Value>().await {
-                if let Some(token) = resp_body.get("nextSequenceToken").and_then(|t| t.as_str()) {
-                    let mut cached_token = self.sequence_token.lock().await;
-                    *cached_token = Some(token.to_string());
+            let mut request_body = serde_json::json!({
+                "logGroupName": log_group,
+                "logStreamName": log_stream,
+                "logEvents": batch
+            });
+
+            // Include sequence token if available (for optimization)
+            {
+                let token = self.sequence_token.lock().await;
+                if let Some(ref t) = *token {
+                    request_body["sequenceToken"] = serde_json::json!(t);
                 }
             }
-            Ok(())
-        } else if status.as_u16() == 429 {
-            Err(ExportError::RateLimited)
-        } else {
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            Err(ExportError::Backend {
-                status_code: status.as_u16(),
-                message,
-            })
+
+            let body = serde_json::to_vec(&request_body)
+                .map_err(|e| ExportError::Serialization(e.to_string()))?;
+
+            let headers = vec![
+                (
+                    "Content-Type".to_string(),
+                    "application/x-amz-json-1.1".to_string(),
+                ),
+                ("Host".to_string(), host.clone()),
+                (
+                    "X-Amz-Target".to_string(),
+                    "Logs_20140328.PutLogEvents".to_string(),
+                ),
+            ];
+
+            // Sign the request for CloudWatch Logs service
+            let signed_headers = sign_request(
+                "POST",
+                &self.logs_endpoint,
+                &headers,
+                &body,
+                &credentials,
+                self.credentials_provider.region(),
+                "logs", // CloudWatch Logs service
+            )
+            .map_err(|e| ExportError::Auth(e.to_string()))?;
+
+            // Build and send request
+            let mut request = self.client.post(&self.logs_endpoint).body(body);
+
+            for (name, value) in signed_headers {
+                request = request.header(&name, &value);
+            }
+
+            let response = request.send().await.map_err(|e| {
+                if e.is_timeout() {
+                    ExportError::Timeout(self.timeout)
+                } else {
+                    ExportError::Network(e.to_string())
+                }
+            })?;
+
+            let status = response.status();
+            if status.is_success() {
+                // Extract and cache the next sequence token
+                if let Ok(resp_body) = response.json::<serde_json::Value>().await {
+                    if let Some(token) = resp_body.get("nextSequenceToken").and_then(|t| t.as_str())
+                    {
+                        let mut cached_token = self.sequence_token.lock().await;
+                        *cached_token = Some(token.to_string());
+                    }
+                }
+            } else if status.as_u16() == 429 {
+                return Err(ExportError::RateLimited);
+            } else {
+                let message = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                return Err(ExportError::Backend {
+                    status_code: status.as_u16(),
+                    message,
+                });
+            }
         }
+
+        Ok(())
     }
 
     /// Ensure log group and stream exist, creating them if necessary
@@ -1062,6 +1104,147 @@ impl SpanExporter for CloudWatchExporter {
     fn is_healthy(&self) -> bool {
         self.healthy.load(Ordering::Relaxed)
     }
+}
+
+// ============================================================================
+// CloudWatch Log Truncation Functions
+// ============================================================================
+
+/// Find the nearest valid UTF-8 character boundary at or before `index`
+fn find_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut idx = index;
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+/// Find the nearest valid UTF-8 character boundary at or after `index`
+fn find_char_boundary_forward(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut idx = index;
+    while idx < s.len() && !s.is_char_boundary(idx) {
+        idx += 1;
+    }
+    idx
+}
+
+/// Truncate a string keeping the beginning and end, with a marker in the middle.
+///
+/// This preserves:
+/// - The beginning (system prompt, user query, initial context)
+/// - The end (final response, summary, conclusions)
+///
+/// # Arguments
+/// * `content` - The content to potentially truncate
+/// * `max_size` - Maximum allowed size in bytes
+/// * `head_size` - How many bytes to keep at the start
+/// * `tail_size` - How many bytes to keep at the end
+fn truncate_content_smart(
+    content: &str,
+    max_size: usize,
+    head_size: usize,
+    tail_size: usize,
+) -> String {
+    if content.len() <= max_size {
+        return content.to_string();
+    }
+
+    // Find safe UTF-8 boundaries
+    let head_end = find_char_boundary(content, head_size);
+    let tail_start = find_char_boundary_forward(content, content.len().saturating_sub(tail_size));
+
+    // Ensure we actually truncate something
+    if tail_start <= head_end {
+        // Content is smaller than head + tail, just truncate at max_size
+        let end = find_char_boundary(content, max_size.saturating_sub(50));
+        return format!(
+            "{}... [TRUNCATED: {} total bytes]",
+            &content[..end],
+            content.len()
+        );
+    }
+
+    let removed_bytes = tail_start - head_end;
+
+    format!(
+        "{}\n\n[... TRUNCATED {} bytes ({:.1}KB) ...]\n\n{}",
+        &content[..head_end],
+        removed_bytes,
+        removed_bytes as f64 / 1024.0,
+        &content[tail_start..]
+    )
+}
+
+/// Truncate large content fields in a LogEvent to stay under size limits.
+///
+/// This function identifies and truncates the largest string fields in the
+/// event body, preserving the beginning and end of each field.
+fn truncate_log_event(event: &LogEvent) -> LogEvent {
+    let mut event = event.clone();
+
+    // Truncate body.input.messages[*].content
+    if let Some(ref mut input) = event.body.input {
+        for message in &mut input.messages {
+            if message.content.len() > MAX_CONTENT_FIELD_SIZE {
+                message.content = truncate_content_smart(
+                    &message.content,
+                    MAX_CONTENT_FIELD_SIZE,
+                    TRUNCATION_HEAD_SIZE,
+                    TRUNCATION_TAIL_SIZE,
+                );
+            }
+        }
+    }
+
+    // Truncate body.output.messages[*].content
+    if let Some(ref mut output) = event.body.output {
+        for message in &mut output.messages {
+            if message.content.len() > MAX_CONTENT_FIELD_SIZE {
+                message.content = truncate_content_smart(
+                    &message.content,
+                    MAX_CONTENT_FIELD_SIZE,
+                    TRUNCATION_HEAD_SIZE,
+                    TRUNCATION_TAIL_SIZE,
+                );
+            }
+        }
+    }
+
+    event
+}
+
+/// Split log events into batches that fit within CloudWatch size limits
+fn split_into_batches(
+    events: Vec<serde_json::Value>,
+    max_batch_size: usize,
+) -> Vec<Vec<serde_json::Value>> {
+    let mut batches = Vec::new();
+    let mut current_batch = Vec::new();
+    let mut current_size = 100; // Account for JSON wrapper overhead
+
+    for event in events {
+        let event_size = serde_json::to_string(&event).map(|s| s.len()).unwrap_or(0);
+
+        if current_size + event_size > max_batch_size && !current_batch.is_empty() {
+            batches.push(std::mem::take(&mut current_batch));
+            current_size = 100;
+        }
+
+        current_batch.push(event);
+        current_size += event_size + 1; // +1 for comma separator
+    }
+
+    if !current_batch.is_empty() {
+        batches.push(current_batch);
+    }
+
+    batches
 }
 
 #[cfg(test)]
@@ -1303,5 +1486,128 @@ mod tests {
         assert!(exporter.export(spans).await.is_ok());
         assert!(exporter.shutdown().await.is_ok());
         assert!(exporter.is_healthy());
+    }
+
+    // ========================================================================
+    // Truncation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_truncate_content_smart_small_content() {
+        let content = "Small content";
+        let result = truncate_content_smart(content, 1000, 400, 400);
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_truncate_content_smart_large_content() {
+        let content = "A".repeat(50_000);
+        let result = truncate_content_smart(&content, 32_768, 14_000, 14_000);
+
+        assert!(result.len() < 35_000); // Should be under limit plus marker
+        assert!(result.starts_with("AAAA")); // Preserved start
+        assert!(result.ends_with("AAAA")); // Preserved end
+        assert!(result.contains("[... TRUNCATED")); // Has marker
+    }
+
+    #[test]
+    fn test_truncate_content_smart_utf8_safety() {
+        // String with multi-byte UTF-8 characters
+        let content = "🎉".repeat(20_000); // Each emoji is 4 bytes
+        let result = truncate_content_smart(&content, 32_768, 14_000, 14_000);
+
+        // Should not panic and should produce valid UTF-8
+        assert!(result.chars().count() > 0);
+        // Result should be valid UTF-8 (this would panic if not)
+        let _ = result.as_bytes();
+    }
+
+    #[test]
+    fn test_find_char_boundary() {
+        let s = "Hello 🌍 World";
+        // The emoji starts at byte 6 and is 4 bytes (positions 6, 7, 8, 9)
+        assert_eq!(find_char_boundary(s, 6), 6); // At emoji start, stay there
+        assert_eq!(find_char_boundary(s, 7), 6); // Mid-emoji, go back to start
+        assert_eq!(find_char_boundary(s, 8), 6); // Mid-emoji, go back to start
+        assert_eq!(find_char_boundary(s, 9), 6); // Mid-emoji, go back to start
+        assert_eq!(find_char_boundary(s, 10), 10); // After emoji, at space
+    }
+
+    #[test]
+    fn test_find_char_boundary_forward() {
+        let s = "Hello 🌍 World";
+        // The emoji starts at byte 6 and is 4 bytes
+        assert_eq!(find_char_boundary_forward(s, 6), 6); // At emoji start
+        assert_eq!(find_char_boundary_forward(s, 7), 10); // Mid-emoji, go to next char
+        assert_eq!(find_char_boundary_forward(s, 8), 10); // Mid-emoji, go to next char
+        assert_eq!(find_char_boundary_forward(s, 9), 10); // Mid-emoji, go to next char
+        assert_eq!(find_char_boundary_forward(s, 10), 10); // At space, stay there
+    }
+
+    #[test]
+    fn test_split_into_batches_single_batch() {
+        let events = vec![
+            serde_json::json!({"message": "small event 1"}),
+            serde_json::json!({"message": "small event 2"}),
+        ];
+        let batches = split_into_batches(events, 1000);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 2);
+    }
+
+    #[test]
+    fn test_split_into_batches_multiple_batches() {
+        let events: Vec<serde_json::Value> = (0..10)
+            .map(|i| serde_json::json!({"message": "x".repeat(100), "idx": i}))
+            .collect();
+        // With a very small batch size, should split into multiple batches
+        let batches = split_into_batches(events, 300);
+        assert!(batches.len() > 1);
+        // Total events should be preserved
+        let total: usize = batches.iter().map(|b| b.len()).sum();
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn test_truncate_log_event_small_content() {
+        let event = LogEvent::for_agent_invocation(
+            "trace123",
+            "span456",
+            "session789",
+            Some("System prompt"),
+            "Short user message",
+            "Short response",
+        );
+
+        let truncated = truncate_log_event(&event);
+
+        // Content should be unchanged since it's small
+        let original_json = serde_json::to_string(&event).unwrap();
+        let truncated_json = serde_json::to_string(&truncated).unwrap();
+        assert_eq!(original_json.len(), truncated_json.len());
+    }
+
+    #[test]
+    fn test_truncate_log_event_large_content() {
+        // Create a log event with very large content
+        let large_content = "X".repeat(50_000);
+        let event = LogEvent::for_agent_invocation(
+            "trace123",
+            "span456",
+            "session789",
+            Some(&large_content),
+            "User message",
+            &large_content,
+        );
+
+        let truncated = truncate_log_event(&event);
+
+        // Truncated JSON should be smaller
+        let original_json = serde_json::to_string(&event).unwrap();
+        let truncated_json = serde_json::to_string(&truncated).unwrap();
+        assert!(truncated_json.len() < original_json.len());
+
+        // Should contain truncation marker
+        assert!(truncated_json.contains("[... TRUNCATED"));
     }
 }
