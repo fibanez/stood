@@ -11,10 +11,10 @@
 //! - Holistic view of work quality and completeness
 //! - Balanced decision-making considering multiple viewpoints
 
-use stood::{agent::Agent, tool};
-use stood::llm::models::Bedrock;
-use stood::agent::evaluation::PerspectiveConfig;
 use stood::agent::callbacks::PrintingConfig;
+use stood::agent::evaluation::PerspectiveConfig;
+use stood::llm::models::Bedrock;
+use stood::{agent::Agent, tool};
 
 // Use wee_alloc as the global allocator for smaller binary size
 #[global_allocator]
@@ -145,7 +145,7 @@ async fn operational_assessment(plan: String) -> Result<String, String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disable telemetry to avoid OTLP warnings in example
     std::env::set_var("OTEL_ENABLED", "false");
-    
+
     println!("🎭 Multi-Perspective Evaluation Demo");
     println!("====================================");
     println!("This example shows how agents can evaluate their work from multiple");
@@ -166,7 +166,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             prompt: "As a venture capital investor, evaluate this business plan: \
                     Is the market opportunity compelling? Are the financial projections \
                     realistic? Does the team have the right experience? Is this \
-                    investable and likely to generate strong returns?".to_string(),
+                    investable and likely to generate strong returns?"
+                .to_string(),
             weight: 0.3, // 30% weight - investor focus
         },
         PerspectiveConfig {
@@ -174,7 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             prompt: "As a technical leader, assess this plan: Is the technology \
                     approach sound? Are the development timelines realistic? Can \
                     the team execute on the technical requirements? Are there \
-                    significant technical risks or challenges?".to_string(),
+                    significant technical risks or challenges?"
+                .to_string(),
             weight: 0.25, // 25% weight - technical feasibility
         },
         PerspectiveConfig {
@@ -182,7 +184,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             prompt: "As a market analyst, evaluate this opportunity: Is there \
                     real customer demand? Is the competitive analysis thorough? \
                     Are the go-to-market strategies appropriate? Will customers \
-                    actually pay for this solution?".to_string(),
+                    actually pay for this solution?"
+                .to_string(),
             weight: 0.25, // 25% weight - market validation
         },
         PerspectiveConfig {
@@ -190,7 +193,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             prompt: "As an operations expert, assess the execution plan: Are the \
                     operational processes well-defined? Is the organizational \
                     structure appropriate? Can the team scale effectively? Are \
-                    the success metrics meaningful and achievable?".to_string(),
+                    the success metrics meaningful and achievable?"
+                .to_string(),
             weight: 0.2, // 20% weight - operational execution
         },
     ];
@@ -203,7 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             create detailed business plans and strategies by conducting thorough \
             market research, financial analysis, technical feasibility studies, \
             and operational assessments. Use available tools to gather comprehensive \
-            information and provide actionable insights."
+            information and provide actionable insights.",
         )
         .tools(business_tools)
         .with_multi_perspective_evaluation(perspectives)
@@ -239,35 +243,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         financial projections, technical implementation plan, and \
                         operational strategy. The goal is to create a fundable business \
                         plan that can attract Series A investment.";
-    
+
     println!("Task: {}\n", strategy_task);
     println!("🎭 Agent will evaluate from multiple perspectives with weighted scoring...\n");
 
     let result = business_agent.execute(strategy_task).await?;
-    
+
     println!("=== Comprehensive Business Strategy ===");
     println!("{}", result.response);
-    
+
     // Show execution metrics
     println!("\n=== Execution Metrics ===");
     println!("Duration: {:?}", result.duration);
     println!("Execution cycles: {}", result.execution.cycles);
     println!("Model calls: {}", result.execution.model_calls);
     println!("Used tools: {}", result.used_tools);
-    
+
     if result.used_tools {
         println!("Tools called: {}", result.tools_called.join(", "));
-        println!("Total tool calls: {}", result.tool_call_summary.total_attempts);
-        println!("Successful tool calls: {}", result.tool_call_summary.successful);
-        
+        println!(
+            "Total tool calls: {}",
+            result.tool_call_summary.total_attempts
+        );
+        println!(
+            "Successful tool calls: {}",
+            result.tool_call_summary.successful
+        );
+
         if result.tool_call_summary.failed > 0 {
             println!("Failed tool calls: {}", result.tool_call_summary.failed);
         }
     }
-    
+
     if let Some(tokens) = &result.execution.tokens {
-        println!("Token usage: input={}, output={}, total={}", 
-                tokens.input_tokens, tokens.output_tokens, tokens.total_tokens);
+        println!(
+            "Token usage: input={}, output={}, total={}",
+            tokens.input_tokens, tokens.output_tokens, tokens.total_tokens
+        );
     }
 
     println!("\n=== Multi-Perspective Evaluation Benefits Demonstrated ===");
@@ -279,7 +291,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Holistic Quality: Overall assessment considers all factors");
 
     println!("\n🎉 Multi-perspective evaluation demonstration complete!");
-    println!("The agent used {} execution cycles with 4-perspective weighted evaluation", result.execution.cycles);
-    
+    println!(
+        "The agent used {} execution cycles with 4-perspective weighted evaluation",
+        result.execution.cycles
+    );
+
     Ok(())
 }

@@ -37,25 +37,33 @@ async fn test_claude_debug() -> Result<(), Box<dyn std::error::Error>> {
         .ok(); // Ignore if already initialized
 
     println!("✅ Trace logging enabled");
-    
+
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         println!("❌ AWS Bedrock not available");
         return Err("AWS Bedrock not available".into());
     }
 
-    let provider = PROVIDER_REGISTRY.get_provider(stood::llm::traits::ProviderType::Bedrock).await?;
+    let provider = PROVIDER_REGISTRY
+        .get_provider(stood::llm::traits::ProviderType::Bedrock)
+        .await?;
     let health = provider.health_check().await;
     match health {
         Ok(status) if status.healthy => {
             println!("✅ AWS Bedrock connected successfully!");
         }
         Ok(status) => {
-            println!("⚠️  AWS Bedrock connected but unhealthy: {:?}", status.error);
+            println!(
+                "⚠️  AWS Bedrock connected but unhealthy: {:?}",
+                status.error
+            );
         }
         Err(e) => {
             println!("❌ AWS Bedrock connection failed: {}", e);
@@ -80,7 +88,7 @@ async fn test_claude_debug() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("🤖 Agent created with Claude Haiku 4.5");
-    
+
     // Simple test
     println!("\n=== Simple Test ===");
     let question = "What is 2+3?";

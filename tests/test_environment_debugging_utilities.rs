@@ -1,19 +1,21 @@
 //! Debug test to run in test environment
 //! Run with: cargo test debug_in_test_env -- --nocapture
 
+use std::time::Duration;
 use stood::agent::Agent;
 use stood::llm::models::LMStudio;
-use std::time::Duration;
 
 #[tokio::test]
 async fn debug_in_test_env() {
     println!("🔍 Testing Agent in Test Environment");
     println!("===================================\n");
-    
+
     // Configure registry
-    stood::llm::registry::ProviderRegistry::configure().await.unwrap();
+    stood::llm::registry::ProviderRegistry::configure()
+        .await
+        .unwrap();
     println!("✅ Provider registry configured");
-    
+
     // Test with timeout
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         let mut agent = Agent::builder()
@@ -23,10 +25,11 @@ async fn debug_in_test_env() {
             .max_tokens(50)
             .build()
             .await?;
-        
+
         agent.execute("What is 2+2?").await
-    }).await;
-    
+    })
+    .await;
+
     match result {
         Ok(Ok(response)) => {
             println!("✅ SUCCESS: {}", response.response);

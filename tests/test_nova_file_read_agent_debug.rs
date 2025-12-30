@@ -1,10 +1,10 @@
 use std::env;
+use std::fs;
 use stood::{
     agent::{Agent, LogLevel},
     llm::models::Bedrock,
     tools::builtin::FileReadTool,
 };
-use std::fs;
 
 #[tokio::test]
 async fn test_nova_file_read_agent_execution_flow() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,11 +21,14 @@ async fn test_nova_file_read_agent_execution_flow() -> Result<(), Box<dyn std::e
         .ok();
 
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         eprintln!("❌ AWS Bedrock not available - skipping test");
         return Ok(());
     }
@@ -40,7 +43,9 @@ async fn test_nova_file_read_agent_execution_flow() -> Result<(), Box<dyn std::e
     // Create agent with Nova
     let mut agent = Agent::builder()
         .model(Bedrock::NovaMicro)
-        .system_prompt("You are a helpful assistant. When asked to read a file, use the file_read tool.")
+        .system_prompt(
+            "You are a helpful assistant. When asked to read a file, use the file_read tool.",
+        )
         .tool(Box::new(FileReadTool::new()))
         .with_log_level(LogLevel::Trace)
         .build()
@@ -50,17 +55,20 @@ async fn test_nova_file_read_agent_execution_flow() -> Result<(), Box<dyn std::e
 
     // Test with explicit tool instruction
     println!("\n=== Testing Nova Tool Execution Flow ===");
-    let prompt = format!("Use the file_read tool to read the file at path '{}'", temp_path.display());
+    let prompt = format!(
+        "Use the file_read tool to read the file at path '{}'",
+        temp_path.display()
+    );
     println!("Prompt: {}", prompt);
-    
+
     let response = agent.execute(&prompt).await?;
-    
+
     println!("\n📊 Execution Results:");
     println!("Success: {}", response.success);
     println!("Used tools: {}", response.used_tools);
     println!("Tools called: {:?}", response.tools_called);
     println!("Response: {}", response.response);
-    
+
     if let Some(error) = &response.error {
         println!("Error: {}", error);
     }
@@ -105,11 +113,14 @@ async fn test_claude_file_read_agent_control() -> Result<(), Box<dyn std::error:
         .ok();
 
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         eprintln!("❌ AWS Bedrock not available - skipping test");
         return Ok(());
     }
@@ -124,7 +135,9 @@ async fn test_claude_file_read_agent_control() -> Result<(), Box<dyn std::error:
     // Create agent with Claude
     let mut agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
-        .system_prompt("You are a helpful assistant. When asked to read a file, use the file_read tool.")
+        .system_prompt(
+            "You are a helpful assistant. When asked to read a file, use the file_read tool.",
+        )
         .tool(Box::new(FileReadTool::new()))
         .with_log_level(LogLevel::Trace)
         .build()
@@ -134,11 +147,14 @@ async fn test_claude_file_read_agent_control() -> Result<(), Box<dyn std::error:
 
     // Test with same prompt as Nova
     println!("\n=== Testing Claude Tool Execution Flow ===");
-    let prompt = format!("Use the file_read tool to read the file at path '{}'", temp_path.display());
+    let prompt = format!(
+        "Use the file_read tool to read the file at path '{}'",
+        temp_path.display()
+    );
     println!("Prompt: {}", prompt);
-    
+
     let response = agent.execute(&prompt).await?;
-    
+
     println!("\n📊 Execution Results:");
     println!("Success: {}", response.success);
     println!("Used tools: {}", response.used_tools);

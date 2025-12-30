@@ -44,11 +44,11 @@
 //! }
 //! ```
 
-use async_trait::async_trait;
+use super::error::CallbackError;
+use super::events::{CallbackEvent, ToolEvent};
 use crate::agent::result::AgentResult;
 use crate::error::StoodError;
-use super::events::{CallbackEvent, ToolEvent};
-use super::error::CallbackError;
+use async_trait::async_trait;
 use std::time::Duration;
 
 /// Core callback handler trait - simplified from Python's flexible kwargs
@@ -70,7 +70,7 @@ pub trait CallbackHandler: Send + Sync {
         let _ = (content, is_complete);
         Ok(()) // Default no-op
     }
-    
+
     /// Handle tool execution events (matches Python's 'current_tool_use' kwarg)
     ///
     /// This method is called for all tool-related events, including start,
@@ -79,7 +79,7 @@ pub trait CallbackHandler: Send + Sync {
         let _ = event;
         Ok(()) // Default no-op
     }
-    
+
     /// Handle execution completion (matches Python's completion pattern)
     ///
     /// This method is called when the entire agent execution completes,
@@ -88,7 +88,7 @@ pub trait CallbackHandler: Send + Sync {
         let _ = result;
         Ok(()) // Default no-op
     }
-    
+
     /// Handle errors (matches Python's error handling)
     ///
     /// This method is called when errors occur during execution, allowing
@@ -97,39 +97,59 @@ pub trait CallbackHandler: Send + Sync {
         let _ = error;
         Ok(()) // Default no-op
     }
-    
+
     /// Handle parallel execution start
     ///
     /// This method is called when parallel tool execution begins.
-    async fn on_parallel_start(&self, tool_count: usize, max_parallel: usize) -> Result<(), CallbackError> {
+    async fn on_parallel_start(
+        &self,
+        tool_count: usize,
+        max_parallel: usize,
+    ) -> Result<(), CallbackError> {
         let _ = (tool_count, max_parallel);
         Ok(()) // Default no-op
     }
-    
+
     /// Handle parallel execution progress
     ///
     /// This method is called during parallel tool execution to report progress.
-    async fn on_parallel_progress(&self, completed: usize, total: usize, running: usize) -> Result<(), CallbackError> {
+    async fn on_parallel_progress(
+        &self,
+        completed: usize,
+        total: usize,
+        running: usize,
+    ) -> Result<(), CallbackError> {
         let _ = (completed, total, running);
         Ok(()) // Default no-op
     }
-    
+
     /// Handle parallel execution completion
     ///
     /// This method is called when parallel tool execution completes.
-    async fn on_parallel_complete(&self, total_duration: Duration, success_count: usize, failure_count: usize) -> Result<(), CallbackError> {
+    async fn on_parallel_complete(
+        &self,
+        total_duration: Duration,
+        success_count: usize,
+        failure_count: usize,
+    ) -> Result<(), CallbackError> {
         let _ = (total_duration, success_count, failure_count);
         Ok(()) // Default no-op
     }
-    
+
     /// Handle evaluation events
     ///
     /// This method is called when the agent evaluates whether to continue with more cycles.
-    async fn on_evaluation(&self, strategy: &str, decision: bool, reasoning: &str, duration: Duration) -> Result<(), CallbackError> {
+    async fn on_evaluation(
+        &self,
+        strategy: &str,
+        decision: bool,
+        reasoning: &str,
+        duration: Duration,
+    ) -> Result<(), CallbackError> {
         let _ = (strategy, decision, reasoning, duration);
         Ok(()) // Default no-op
     }
-    
+
     /// Full event handler for advanced usage (matches Python's flexibility)
     ///
     /// This method receives all events and can be used for comprehensive
@@ -137,17 +157,39 @@ pub trait CallbackHandler: Send + Sync {
     /// in the simplified handlers above.
     async fn handle_event(&self, event: CallbackEvent) -> Result<(), CallbackError> {
         match event {
-            CallbackEvent::ContentDelta { delta, complete, .. } => {
-                self.on_content(&delta, complete).await
+            CallbackEvent::ContentDelta {
+                delta, complete, ..
+            } => self.on_content(&delta, complete).await,
+            CallbackEvent::ToolStart {
+                tool_name, input, ..
+            } => {
+                self.on_tool(ToolEvent::Started {
+                    name: tool_name,
+                    input,
+                })
+                .await
             }
-            CallbackEvent::ToolStart { tool_name, input, .. } => {
-                self.on_tool(ToolEvent::Started { name: tool_name, input }).await
-            }
-            CallbackEvent::ToolComplete { tool_name, output, error, duration, .. } => {
+            CallbackEvent::ToolComplete {
+                tool_name,
+                output,
+                error,
+                duration,
+                ..
+            } => {
                 if let Some(err) = error {
-                    self.on_tool(ToolEvent::Failed { name: tool_name, error: err, duration }).await
+                    self.on_tool(ToolEvent::Failed {
+                        name: tool_name,
+                        error: err,
+                        duration,
+                    })
+                    .await
                 } else {
-                    self.on_tool(ToolEvent::Completed { name: tool_name, output, duration }).await
+                    self.on_tool(ToolEvent::Completed {
+                        name: tool_name,
+                        output,
+                        duration,
+                    })
+                    .await
                 }
             }
             CallbackEvent::EventLoopComplete { result, .. } => {
@@ -155,24 +197,36 @@ pub trait CallbackHandler: Send + Sync {
                 let agent_result = AgentResult::from(result, Duration::ZERO);
                 self.on_complete(&agent_result).await
             }
-            CallbackEvent::Error { error, .. } => {
-                self.on_error(&error).await
-            }
-            CallbackEvent::ParallelStart { tool_count, max_parallel } => {
-                self.on_parallel_start(tool_count, max_parallel).await
-            }
-            CallbackEvent::ParallelProgress { completed, total, running } => {
-                self.on_parallel_progress(completed, total, running).await
-            }
-            CallbackEvent::ParallelComplete { total_duration, success_count, failure_count } => {
-                self.on_parallel_complete(total_duration, success_count, failure_count).await
+            CallbackEvent::Error { error, .. } => self.on_error(&error).await,
+            CallbackEvent::ParallelStart {
+                tool_count,
+                max_parallel,
+            } => self.on_parallel_start(tool_count, max_parallel).await,
+            CallbackEvent::ParallelProgress {
+                completed,
+                total,
+                running,
+            } => self.on_parallel_progress(completed, total, running).await,
+            CallbackEvent::ParallelComplete {
+                total_duration,
+                success_count,
+                failure_count,
+            } => {
+                self.on_parallel_complete(total_duration, success_count, failure_count)
+                    .await
             }
             CallbackEvent::EvaluationStart { .. } => {
                 // Start events are handled in the implementation if needed
                 Ok(())
             }
-            CallbackEvent::EvaluationComplete { strategy, decision, reasoning, duration } => {
-                self.on_evaluation(&strategy, decision, &reasoning, duration).await
+            CallbackEvent::EvaluationComplete {
+                strategy,
+                decision,
+                reasoning,
+                duration,
+            } => {
+                self.on_evaluation(&strategy, decision, &reasoning, duration)
+                    .await
             }
             _ => Ok(()), // Ignore other events by default
         }
@@ -189,13 +243,13 @@ pub trait SyncCallbackHandler: Send + Sync {
         let _ = (content, is_complete);
         Ok(())
     }
-    
+
     /// Synchronous tool event handler
     fn on_tool_sync(&self, event: ToolEvent) -> Result<(), CallbackError> {
         let _ = event;
         Ok(())
     }
-    
+
     /// Synchronous event handler (required)
     fn handle_event_sync(&self, event: CallbackEvent) -> Result<(), CallbackError>;
 }

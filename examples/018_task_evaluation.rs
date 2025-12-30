@@ -6,7 +6,7 @@
 //!
 //! The task evaluation strategy allows agents to:
 //! - Focus on user satisfaction and request completion
-//! - Identify missing aspects that would better serve the user  
+//! - Identify missing aspects that would better serve the user
 //! - Continue working until the user's needs are fully addressed
 //! - Provide comprehensive responses that match user intent
 //!
@@ -16,9 +16,9 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use stood::{agent::Agent, tool};
+use stood::agent::callbacks::{CallbackError, CallbackEvent, CallbackHandler, PrintingConfig};
 use stood::llm::models::Bedrock;
-use stood::agent::callbacks::{PrintingConfig, CallbackHandler, CallbackEvent, CallbackError};
+use stood::{agent::Agent, tool};
 
 #[tool]
 /// Get basic tourist information for a destination
@@ -77,10 +77,10 @@ impl CallbackHandler for EvaluationTrackingHandler {
             CallbackEvent::EvaluationStart { strategy, .. } => {
                 println!("🤔 Starting evaluation using {} strategy...", strategy);
             }
-            CallbackEvent::EvaluationComplete { 
-                strategy, 
-                decision, 
-                reasoning, 
+            CallbackEvent::EvaluationComplete {
+                strategy,
+                decision,
+                reasoning,
                 duration,
             } => {
                 // Store evaluation results
@@ -88,15 +88,21 @@ impl CallbackHandler for EvaluationTrackingHandler {
                 let mut last_reasoning = self.last_evaluation_reasoning.lock().await;
                 *last_decision = Some(decision);
                 *last_reasoning = Some(reasoning.clone());
-                
+
                 // Display evaluation decision with reasoning
                 let decision_text = if decision { "CONTINUE" } else { "STOP" };
-                println!("🤔 Evaluation ({}) → {} (took {:.1}s)", 
-                       strategy, decision_text, duration.as_secs_f64());
-                
+                println!(
+                    "🤔 Evaluation ({}) → {} (took {:.1}s)",
+                    strategy,
+                    decision_text,
+                    duration.as_secs_f64()
+                );
+
                 if !reasoning.trim().is_empty() {
-                    println!("   Reasoning: {}", 
-                           reasoning.chars().take(200).collect::<String>());
+                    println!(
+                        "   Reasoning: {}",
+                        reasoning.chars().take(200).collect::<String>()
+                    );
                 }
             }
             _ => {} // Ignore other events
@@ -109,20 +115,18 @@ impl CallbackHandler for EvaluationTrackingHandler {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disable telemetry to avoid OTLP warnings in example
     std::env::set_var("OTEL_ENABLED", "false");
-    
+
     println!("✈️ Task Evaluation Strategy Demo - Travel Planning");
     println!("====================================================");
     println!("This example shows how task evaluation guides an agent to create");
     println!("comprehensive travel plans using model knowledge.\n");
 
     // Create travel planning tool
-    let travel_tools = vec![
-        get_destination_info(),
-    ];
+    let travel_tools = vec![get_destination_info()];
 
     // Create enhanced callback handler for evaluation tracking
     let evaluation_handler = EvaluationTrackingHandler::new();
-    
+
     // Create agent with task evaluation strategy (this is the DEFAULT behavior)
     let mut travel_agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
@@ -217,43 +221,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                       I'm interested in both famous attractions and authentic local experiences. \
                       Please provide a comprehensive travel plan with practical details \
                       for planning and enjoying my visit.";
-    
+
     println!("Task: {}\n", travel_task);
     println!("✈️ Agent will use task evaluation criteria...\n");
-    
+
     // Add conversation tracking before execution
     println!("🔍 CONVERSATION TRACKING DEBUG:");
-    println!("   📝 Messages before execution: {}", travel_agent.conversation().message_count());
-    println!("   🗨️  Initial conversation state: {}", if travel_agent.conversation().is_empty() { "EMPTY" } else { "HAS_MESSAGES" });
+    println!(
+        "   📝 Messages before execution: {}",
+        travel_agent.conversation().message_count()
+    );
+    println!(
+        "   🗨️  Initial conversation state: {}",
+        if travel_agent.conversation().is_empty() {
+            "EMPTY"
+        } else {
+            "HAS_MESSAGES"
+        }
+    );
     println!("");
 
     let result = travel_agent.execute(travel_task).await?;
-    
-    // Add conversation tracking after execution  
+
+    // Add conversation tracking after execution
     println!("\n🔍 CONVERSATION TRACKING RESULTS:");
-    println!("   📝 Messages after execution: {}", travel_agent.conversation().message_count());
+    println!(
+        "   📝 Messages after execution: {}",
+        travel_agent.conversation().message_count()
+    );
     println!("   🔄 Execution cycles: {}", result.execution.cycles);
-    println!("   🗨️  Final conversation state: {}", if travel_agent.conversation().is_empty() { "EMPTY" } else { "HAS_MESSAGES" });
-    
+    println!(
+        "   🗨️  Final conversation state: {}",
+        if travel_agent.conversation().is_empty() {
+            "EMPTY"
+        } else {
+            "HAS_MESSAGES"
+        }
+    );
+
     // Display conversation messages to verify continuity and identify evaluation feedback
     println!("\n💬 CONVERSATION HISTORY VERIFICATION:");
-    for (index, message) in travel_agent.conversation().messages().messages.iter().enumerate() {
-        let text = message.text().map(|s| s.to_string()).unwrap_or_else(|| "[NO TEXT]".to_string());
+    for (index, message) in travel_agent
+        .conversation()
+        .messages()
+        .messages
+        .iter()
+        .enumerate()
+    {
+        let text = message
+            .text()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "[NO TEXT]".to_string());
         let preview = text.chars().take(100).collect::<String>();
-        
+
         // Check if this looks like evaluation feedback
         let is_evaluation = match message.role {
             stood::types::MessageRole::User => {
-                text.contains("EVALUATION FEEDBACK:") || 
-                text.contains("Based on my travel evaluation") ||
-                text.contains("Focus on completing any missing travel details")
-            },
-            _ => false
+                text.contains("EVALUATION FEEDBACK:")
+                    || text.contains("Based on my travel evaluation")
+                    || text.contains("Focus on completing any missing travel details")
+            }
+            _ => false,
         };
-        
+
         let marker = if is_evaluation { "🔍 [EVAL]" } else { "" };
-        
-        println!("   {}. {:?}: {}{} {}",
+
+        println!(
+            "   {}. {:?}: {}{} {}",
             index + 1,
             message.role,
             marker,
@@ -261,30 +295,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if text.len() > 100 { "..." } else { "" }
         );
     }
-    
+
     println!("=== Comprehensive Travel Plan ===");
     println!("{}", result.response);
-    
+
     // Show execution metrics
     println!("\n=== Execution Metrics ===");
     println!("Duration: {:?}", result.duration);
     println!("Execution cycles: {}", result.execution.cycles);
     println!("Model calls: {}", result.execution.model_calls);
     println!("Used tools: {}", result.used_tools);
-    
+
     if result.used_tools {
         println!("Tools called: {}", result.tools_called.join(", "));
-        println!("Total tool calls: {}", result.tool_call_summary.total_attempts);
-        println!("Successful tool calls: {}", result.tool_call_summary.successful);
-        
+        println!(
+            "Total tool calls: {}",
+            result.tool_call_summary.total_attempts
+        );
+        println!(
+            "Successful tool calls: {}",
+            result.tool_call_summary.successful
+        );
+
         if result.tool_call_summary.failed > 0 {
             println!("Failed tool calls: {}", result.tool_call_summary.failed);
         }
     }
-    
+
     if let Some(tokens) = &result.execution.tokens {
-        println!("Token usage: input={}, output={}, total={}", 
-                tokens.input_tokens, tokens.output_tokens, tokens.total_tokens);
+        println!(
+            "Token usage: input={}, output={}, total={}",
+            tokens.input_tokens, tokens.output_tokens, tokens.total_tokens
+        );
     }
 
     println!("\n=== Task Evaluation Benefits Demonstrated ===");
@@ -296,7 +338,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Quality Assurance: Ensures comprehensive, practical travel advice");
 
     println!("\n🎉 Task evaluation demonstration complete!");
-    println!("The agent used {} execution cycles with travel-focused evaluation", result.execution.cycles);
-    
+    println!(
+        "The agent used {} execution cycles with travel-focused evaluation",
+        result.execution.cycles
+    );
+
     Ok(())
 }

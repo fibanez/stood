@@ -16,12 +16,12 @@
 
 use std::io::{self, Write};
 //use stood::tools::builtin::CalculatorTool;
+use std::time::Duration;
 use stood::{
-    agent::{Agent, LogLevel, AgentResult},
+    agent::{Agent, AgentResult, LogLevel},
     llm::models::{Bedrock, LMStudio},
     tool,
 };
-use std::time::Duration;
 
 /// Interactive prompt for log level selection
 fn select_log_level() -> LogLevel {
@@ -147,13 +147,13 @@ fn display_execution_metrics(result: &AgentResult, log_level: LogLevel) {
     if log_level == LogLevel::Off {
         return;
     }
-    
+
     println!("Duration: {:?}", result.duration);
     println!("Used tools: {}", result.used_tools);
     println!("Tool calls: {}", result.tool_call_summary.total_attempts);
     println!("Execution cycles: {}", result.execution.cycles);
     println!("Model calls: {}", result.execution.model_calls);
-    
+
     if result.used_tools {
         println!("Tools called: {}", result.tools_called.join(", "));
         println!("Tools successful: {}", result.tools_successful.join(", "));
@@ -179,10 +179,12 @@ fn display_token_metrics(result: &AgentResult, log_level: LogLevel) {
     if log_level == LogLevel::Off {
         return;
     }
-    
+
     if let Some(tokens) = &result.execution.tokens {
-        println!("Token usage: input={}, output={}, total={}", 
-                tokens.input_tokens, tokens.output_tokens, tokens.total_tokens);
+        println!(
+            "Token usage: input={}, output={}, total={}",
+            tokens.input_tokens, tokens.output_tokens, tokens.total_tokens
+        );
     } else {
         println!("Token usage: not available");
     }
@@ -203,7 +205,7 @@ fn aggregate_metrics(results: &[AgentResult]) -> AggregatedMetrics {
         total_tokens: 0,
         used_streaming: false,
     };
-    
+
     for result in results {
         agg.total_tool_calls += result.tool_call_summary.total_attempts;
         agg.total_successful_tools += result.tool_call_summary.successful;
@@ -212,14 +214,14 @@ fn aggregate_metrics(results: &[AgentResult]) -> AggregatedMetrics {
         agg.total_model_calls += result.execution.model_calls;
         agg.total_duration += result.duration;
         agg.used_streaming |= result.execution.performance.was_streamed;
-        
+
         if let Some(tokens) = &result.execution.tokens {
             agg.total_input_tokens += tokens.input_tokens;
             agg.total_output_tokens += tokens.output_tokens;
             agg.total_tokens += tokens.total_tokens;
         }
     }
-    
+
     agg
 }
 
@@ -228,26 +230,34 @@ fn display_aggregated_metrics(metrics: &AggregatedMetrics) {
     println!("\n📊 Aggregated Metrics Summary:");
     println!("   - Total executions: {}", metrics.total_executions);
     println!("   - Total tool calls: {}", metrics.total_tool_calls);
-    println!("   - Total successful tools: {}", metrics.total_successful_tools);
+    println!(
+        "   - Total successful tools: {}",
+        metrics.total_successful_tools
+    );
     println!("   - Total failed tools: {}", metrics.total_failed_tools);
     println!("   - Total execution cycles: {}", metrics.total_cycles);
     println!("   - Total model calls: {}", metrics.total_model_calls);
     println!("   - Total execution time: {:?}", metrics.total_duration);
-    println!("   - Total tokens: input={}, output={}, total={}", 
-            metrics.total_input_tokens, metrics.total_output_tokens, metrics.total_tokens);
+    println!(
+        "   - Total tokens: input={}, output={}, total={}",
+        metrics.total_input_tokens, metrics.total_output_tokens, metrics.total_tokens
+    );
     println!("   - Used streaming: {}", metrics.used_streaming);
-    
+
     if metrics.total_failed_tools > 0 {
-        println!("   - Tool failure rate: {:.1}%", 
-                (metrics.total_failed_tools as f64 / metrics.total_tool_calls as f64) * 100.0);
+        println!(
+            "   - Tool failure rate: {:.1}%",
+            (metrics.total_failed_tools as f64 / metrics.total_tool_calls as f64) * 100.0
+        );
     }
-    
+
     if metrics.total_tokens > 0 {
-        println!("   - Average tokens per execution: {:.1}", 
-                metrics.total_tokens as f64 / metrics.total_executions as f64);
+        println!(
+            "   - Average tokens per execution: {:.1}",
+            metrics.total_tokens as f64 / metrics.total_executions as f64
+        );
     }
 }
-
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -308,11 +318,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Model configuration: {:?}", model_config);
 
     // Explain LM Studio configuration
-    if matches!(model_config, ModelConfig::LmStudioGemma12B | ModelConfig::LmStudioGemma27B) {
+    if matches!(
+        model_config,
+        ModelConfig::LmStudioGemma12B | ModelConfig::LmStudioGemma27B
+    ) {
         println!("📝 Note: LM Studio/Gemma requires more agentic cycles for complex tasks");
         match model_config {
-            ModelConfig::LmStudioGemma12B => println!("   Increased max_cycles from 10 to 20 for better task completion (12B model)"),
-            ModelConfig::LmStudioGemma27B => println!("   Increased max_cycles from 10 to 15 for better task completion (27B model)"),
+            ModelConfig::LmStudioGemma12B => println!(
+                "   Increased max_cycles from 10 to 20 for better task completion (12B model)"
+            ),
+            ModelConfig::LmStudioGemma27B => println!(
+                "   Increased max_cycles from 10 to 15 for better task completion (27B model)"
+            ),
             _ => {}
         }
     }
@@ -324,7 +341,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Check if the selected provider is available
     let (provider_type, provider_name) = match model_config {
-        ModelConfig::LmStudioGemma12B | ModelConfig::LmStudioGemma27B => (stood::llm::traits::ProviderType::LmStudio, "LM Studio"),
+        ModelConfig::LmStudioGemma12B | ModelConfig::LmStudioGemma27B => {
+            (stood::llm::traits::ProviderType::LmStudio, "LM Studio")
+        }
         ModelConfig::BedrockClaudeHaiku
         | ModelConfig::BedrockNovaLite
         | ModelConfig::BedrockNovaMicro => {
@@ -408,11 +427,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .tools(tools)
                 .with_log_level(log_level)
                 .with_event_loop_config(event_loop_config);
-                
+
             if streaming_enabled {
                 builder = builder.with_printing_callbacks();
             }
-            
+
             builder.build().await?
         }
         ModelConfig::LmStudioGemma27B => {
@@ -429,11 +448,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .tools(tools)
                 .with_log_level(log_level)
                 .with_event_loop_config(event_loop_config);
-                
+
             if streaming_enabled {
                 builder = builder.with_printing_callbacks();
             }
-            
+
             builder.build().await?
         }
         ModelConfig::BedrockClaudeHaiku => {
@@ -443,11 +462,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_streaming(streaming_enabled)
                 .tools(tools)
                 .with_log_level(log_level);
-                
+
             if streaming_enabled {
                 builder = builder.with_printing_callbacks();
             }
-            
+
             builder.build().await?
         }
         ModelConfig::BedrockNovaLite => {
@@ -457,11 +476,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_streaming(streaming_enabled)
                 .tools(tools)
                 .with_log_level(log_level);
-                
+
             if streaming_enabled {
                 builder = builder.with_printing_callbacks();
             }
-            
+
             builder.build().await?
         }
         ModelConfig::BedrockNovaMicro => {
@@ -471,11 +490,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_streaming(streaming_enabled)
                 .tools(tools)
                 .with_log_level(log_level);
-                
+
             if streaming_enabled {
                 builder = builder.with_printing_callbacks();
             }
-            
+
             builder.build().await?
         }
     };
@@ -513,15 +532,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Question: {}", question);
 
     let result1 = agent.execute(question).await?;
-    
+
     if !streaming_enabled {
         println!("Agent: {}", result1.response);
     }
-    
+
     // Display execution and token metrics using reflection
     display_execution_metrics(&result1, log_level);
     display_token_metrics(&result1, log_level);
-    
+
     results.push(result1);
 
     // Example 2: Complex multi-tool task (will use multiple tools)
@@ -531,15 +550,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Task: {}", complex_task);
 
     let result2 = agent.execute(complex_task).await?;
-    
+
     if !streaming_enabled {
         println!("Agent: {}", result2.response);
     }
-    
+
     // Display execution and token metrics using reflection
     display_execution_metrics(&result2, log_level);
     display_token_metrics(&result2, log_level);
-    
+
     results.push(result2);
 
     println!("\n✅ Successfully demonstrated LLM provider system:");
@@ -584,4 +603,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

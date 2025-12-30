@@ -1,10 +1,10 @@
 use std::env;
+use std::fs;
 use stood::{
     agent::{Agent, LogLevel},
     llm::models::Bedrock,
     tools::builtin::FileReadTool,
 };
-use std::fs;
 
 #[tokio::test]
 async fn test_nova_file_read_debug() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,11 +21,14 @@ async fn test_nova_file_read_debug() -> Result<(), Box<dyn std::error::Error>> {
         .ok();
 
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         eprintln!("❌ AWS Bedrock not available - skipping test");
         return Ok(());
     }
@@ -40,7 +43,9 @@ async fn test_nova_file_read_debug() -> Result<(), Box<dyn std::error::Error>> {
     // Create agent with Nova
     let mut agent = Agent::builder()
         .model(Bedrock::NovaLite)
-        .system_prompt("You are a helpful assistant. When asked to read a file, use the file_read tool.")
+        .system_prompt(
+            "You are a helpful assistant. When asked to read a file, use the file_read tool.",
+        )
         .tool(Box::new(FileReadTool::new()))
         .with_log_level(LogLevel::Debug)
         .build()
@@ -50,19 +55,25 @@ async fn test_nova_file_read_debug() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 1: Direct path request
     println!("\n=== Test 1: Direct Path Request ===");
-    let prompt1 = format!("Please read the file at '{}' and tell me what it contains.", temp_path.display());
+    let prompt1 = format!(
+        "Please read the file at '{}' and tell me what it contains.",
+        temp_path.display()
+    );
     println!("Prompt: {}", prompt1);
-    
+
     let response1 = agent.execute(&prompt1).await?;
     println!("\nResponse: {}", response1.response);
     println!("Used tools: {}", response1.used_tools);
     println!("Tools called: {:?}", response1.tools_called);
-    
+
     // Test 2: Explicit tool instruction
     println!("\n=== Test 2: Explicit Tool Instruction ===");
-    let prompt2 = format!("Use the file_read tool with path '{}' to read the file content.", temp_path.display());
+    let prompt2 = format!(
+        "Use the file_read tool with path '{}' to read the file content.",
+        temp_path.display()
+    );
     println!("Prompt: {}", prompt2);
-    
+
     let response2 = agent.execute(&prompt2).await?;
     println!("\nResponse: {}", response2.response);
     println!("Used tools: {}", response2.used_tools);
@@ -99,11 +110,14 @@ async fn test_claude_file_read_control() -> Result<(), Box<dyn std::error::Error
         .ok();
 
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         eprintln!("❌ AWS Bedrock not available - skipping test");
         return Ok(());
     }
@@ -118,7 +132,9 @@ async fn test_claude_file_read_control() -> Result<(), Box<dyn std::error::Error
     // Create agent with Claude
     let mut agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
-        .system_prompt("You are a helpful assistant. When asked to read a file, use the file_read tool.")
+        .system_prompt(
+            "You are a helpful assistant. When asked to read a file, use the file_read tool.",
+        )
         .tool(Box::new(FileReadTool::new()))
         .with_log_level(LogLevel::Debug)
         .build()
@@ -128,9 +144,12 @@ async fn test_claude_file_read_control() -> Result<(), Box<dyn std::error::Error
 
     // Test: Direct path request (same as Nova test 1)
     println!("\n=== Claude Direct Path Request ===");
-    let prompt = format!("Please read the file at '{}' and tell me what it contains.", temp_path.display());
+    let prompt = format!(
+        "Please read the file at '{}' and tell me what it contains.",
+        temp_path.display()
+    );
     println!("Prompt: {}", prompt);
-    
+
     let response = agent.execute(&prompt).await?;
     println!("\nResponse: {}", response.response);
     println!("Used tools: {}", response.used_tools);

@@ -10,11 +10,11 @@
 //! - Performance tracking (tokens/second)
 //! - Proper use of Agent::builder() and agent.execute() patterns
 
-use stood::agent::{Agent, LogLevel};
-use stood::agent::callbacks::{CallbackHandler, ToolEvent};
-use tokio::sync::Mutex;
-use std::time::Instant;
 use std::io::{self, Write};
+use std::time::Instant;
+use stood::agent::callbacks::{CallbackHandler, ToolEvent};
+use stood::agent::{Agent, LogLevel};
+use tokio::sync::Mutex;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// A callback handler that displays streaming output in real-time
@@ -37,34 +37,45 @@ impl StreamingDisplay {
 #[async_trait::async_trait]
 impl CallbackHandler for StreamingDisplay {
     /// Handle streaming content as it's generated
-    async fn on_content(&self, content: &str, _is_complete: bool) -> Result<(), stood::agent::callbacks::CallbackError> {
+    async fn on_content(
+        &self,
+        content: &str,
+        _is_complete: bool,
+    ) -> Result<(), stood::agent::callbacks::CallbackError> {
         // Start tracking on first content
         if !*self.test_started.lock().await {
             *self.test_started.lock().await = true;
             *self.start_time.lock().await = Some(Instant::now());
             println!("💭 Response streaming in real-time:\n");
         }
-        
+
         // Display the chunk without newline to show streaming effect
         print!("{}", content);
         use std::io::{self, Write};
         io::stdout().flush().unwrap();
-        
+
         // Count tokens (rough approximation)
         let tokens = content.split_whitespace().count();
         *self.token_count.lock().await += tokens;
-        
+
         Ok(())
     }
 
     /// Handle tool events
-    async fn on_tool(&self, event: ToolEvent) -> Result<(), stood::agent::callbacks::CallbackError> {
+    async fn on_tool(
+        &self,
+        event: ToolEvent,
+    ) -> Result<(), stood::agent::callbacks::CallbackError> {
         match event {
             ToolEvent::Started { name, .. } => {
                 println!("\n🔧 Using tool '{}'", name);
             }
             ToolEvent::Completed { name, duration, .. } => {
-                println!("  ✓ Tool '{}' completed in {:.2}s", name, duration.as_secs_f64());
+                println!(
+                    "  ✓ Tool '{}' completed in {:.2}s",
+                    name,
+                    duration.as_secs_f64()
+                );
             }
             ToolEvent::Failed { name, error, .. } => {
                 println!("  ❌ Tool '{}' failed: {}", name, error);
@@ -74,31 +85,40 @@ impl CallbackHandler for StreamingDisplay {
     }
 
     /// Handle completion of agent execution
-    async fn on_complete(&self, _result: &stood::agent::AgentResult) -> Result<(), stood::agent::callbacks::CallbackError> {
+    async fn on_complete(
+        &self,
+        _result: &stood::agent::AgentResult,
+    ) -> Result<(), stood::agent::callbacks::CallbackError> {
         println!("\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        
+
         if let Some(start) = *self.start_time.lock().await {
             let duration = start.elapsed();
             let tokens = *self.token_count.lock().await;
-            
+
             println!("✅ Execution completed");
             println!("📊 Streaming metrics:");
             println!("  - Stream duration: {:.2}s", duration.as_secs_f64());
             println!("  - Approximate tokens: {}", tokens);
             if duration.as_secs_f64() > 0.0 {
-                println!("  - Tokens/second: {:.1}", tokens as f64 / duration.as_secs_f64());
+                println!(
+                    "  - Tokens/second: {:.1}",
+                    tokens as f64 / duration.as_secs_f64()
+                );
             }
         }
-        
+
         // Reset for next execution
         *self.token_count.lock().await = 0;
         *self.test_started.lock().await = false;
-        
+
         Ok(())
     }
 
     /// Handle errors during execution
-    async fn on_error(&self, error: &stood::StoodError) -> Result<(), stood::agent::callbacks::CallbackError> {
+    async fn on_error(
+        &self,
+        error: &stood::StoodError,
+    ) -> Result<(), stood::agent::callbacks::CallbackError> {
         println!("\n❌ Error during streaming: {}", error);
         Ok(())
     }
@@ -116,7 +136,7 @@ fn select_log_level() -> LogLevel {
 
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
-    
+
     match input.trim() {
         "1" => LogLevel::Off,
         "2" => LogLevel::Info,
@@ -136,14 +156,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Interactive log level selection
     let log_level = select_log_level();
-    
+
     // Set up logging based on user selection
     match log_level {
         LogLevel::Off => {
             // For "Off", suppress all logging including telemetry
             tracing_subscriber::registry()
                 .with(tracing_subscriber::fmt::layer())
-                .with(tracing_subscriber::EnvFilter::new("off"))  // Turn off all logging
+                .with(tracing_subscriber::EnvFilter::new("off")) // Turn off all logging
                 .init();
         }
         _ => {
@@ -153,11 +173,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 LogLevel::Trace => tracing::Level::TRACE,
                 LogLevel::Off => unreachable!(), // Already handled above
             };
-            
+
             tracing_subscriber::registry()
                 .with(tracing_subscriber::fmt::layer())
-                .with(tracing_subscriber::EnvFilter::from_default_env()
-                    .add_directive(tracing_level.into()))
+                .with(
+                    tracing_subscriber::EnvFilter::from_default_env()
+                        .add_directive(tracing_level.into()),
+                )
                 .init();
         }
     }
@@ -168,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let streaming_handler = StreamingDisplay::new();
     let mut agent = Agent::builder()
         .with_callback_handler(streaming_handler)
-        .with_log_level(log_level)  // Set the selected log level
+        .with_log_level(log_level) // Set the selected log level
         .build()
         .await?;
 
@@ -177,18 +199,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("Haiku", "Write a haiku about Rust programming"),
         ("Science", "Explain quantum computing in 3 sentences"),
         ("Facts", "List 5 interesting facts about the ocean"),
-        ("Creative", "Tell me a very short story about a robot learning to paint"),
+        (
+            "Creative",
+            "Tell me a very short story about a robot learning to paint",
+        ),
     ];
 
-    println!("Running {} streaming tests with agent.execute()...\n", test_prompts.len());
+    println!(
+        "Running {} streaming tests with agent.execute()...\n",
+        test_prompts.len()
+    );
 
     for (i, (category, prompt)) in test_prompts.iter().enumerate() {
         println!("\n╭─────────────────────────────────────────────────────────────╮");
-        println!("│ Test {} of {} - Category: {:14}                      │", i + 1, test_prompts.len(), category);
+        println!(
+            "│ Test {} of {} - Category: {:14}                      │",
+            i + 1,
+            test_prompts.len(),
+            category
+        );
         println!("╰─────────────────────────────────────────────────────────────╯");
         println!("📝 Prompt: \"{}\"", prompt);
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        
+
         // Execute using the simple agent.execute() method
         // All streaming configuration was done in the builder
         match agent.execute(*prompt).await {
@@ -199,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  - Response length: {} characters", result.response.len());
                 println!("  - Execution time: {:.2}s", result.duration.as_secs_f64());
                 println!("  - Success: {}", if result.success { "✅" } else { "❌" });
-                
+
                 if result.used_tools {
                     println!("  - Tools used: {}", result.tools_called.join(", "));
                 }
@@ -228,6 +261,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("│ • Callback handlers for streaming                           │");
     println!("│ • Real-time token display                                  │");
     println!("╰─────────────────────────────────────────────────────────────╯");
-    
+
     Ok(())
 }

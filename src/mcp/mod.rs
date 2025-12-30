@@ -22,7 +22,7 @@
 //!     env_vars: [("FASTMCP_LOG_LEVEL".to_string(), "ERROR".to_string())].into(),
 //!     ..Default::default()
 //! };
-//! 
+//!
 //! let transport = TransportFactory::stdio(config);
 //! let mut mcp_client = MCPClient::new(MCPClientConfig::default(), transport);
 //! mcp_client.connect().await?;
@@ -120,7 +120,8 @@ pub use server::{MCPServer, MCPServerConfig, MCPServerHandler, StoodMCPServer};
 
 // Re-export transport implementations and configurations
 pub use transport::{
-    MCPTransport, StdioConfig, StdioTransport, TransportFactory, TransportInfo, TransportStreams, WebSocketConfig,
+    MCPTransport, StdioConfig, StdioTransport, TransportFactory, TransportInfo, TransportStreams,
+    WebSocketConfig,
 };
 
 // Re-export all MCP protocol types and message structures

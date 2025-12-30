@@ -51,7 +51,8 @@ async fn test_agent_chat_integration_haiku() {
         .temperature(0.7)
         .max_tokens(100) // Keep responses short for testing
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     // Verify initial state
     assert_eq!(agent.conversation().message_count(), 0);
@@ -96,7 +97,10 @@ async fn test_agent_chat_integration_haiku() {
     println!("🤖 Agent response: {}", result2.response);
 
     // Verify response references previous context
-    assert!(!result2.response.is_empty(), "Second response should not be empty");
+    assert!(
+        !result2.response.is_empty(),
+        "Second response should not be empty"
+    );
     assert!(
         result2.response.to_lowercase().contains("2")
             || result2.response.to_lowercase().contains("two")
@@ -133,7 +137,8 @@ async fn test_agent_chat_error_recovery() {
         .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are helpful.")
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     // Test normal operation first
     let response = agent.execute("Hello").await.expect("Chat should work");
@@ -179,7 +184,8 @@ async fn test_agent_chat_conversation_persistence() {
         .model(Bedrock::ClaudeHaiku45)
         .system_prompt("Be very brief. Answer with one word when possible.")
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     // Test multiple interactions and verify history grows
     let _ = agent.execute("Say hello").await.expect("Chat 1 failed");
@@ -225,7 +231,8 @@ async fn test_agent_chat_different_models() {
         .system_prompt("Answer in exactly 3 words.")
         .temperature(0.3)
         .build()
-        .await.expect("Failed to build Haiku agent");
+        .await
+        .expect("Failed to build Haiku agent");
 
     let haiku_response = haiku_agent
         .execute("What is your favorite color?")
@@ -241,19 +248,23 @@ async fn test_agent_chat_different_models() {
         .system_prompt("Answer in exactly 3 words.")
         .temperature(0.3)
         .build()
-        .await.expect("Failed to build Sonnet agent");
+        .await
+        .expect("Failed to build Sonnet agent");
 
     // Sonnet may not be available in all accounts, so handle gracefully
     match sonnet_agent.execute("What is your favorite color?").await {
         Ok(sonnet_response) => {
             println!("🟨 Sonnet response: {}", sonnet_response);
             if sonnet_response.response.is_empty() {
-                println!("⚠️  Sonnet returned empty response - model may not be properly configured");
+                println!(
+                    "⚠️  Sonnet returned empty response - model may not be properly configured"
+                );
             } else {
                 // Both should follow the system prompt but may differ slightly
                 // Note: Models may interpret "3 words" differently, so allow reasonable flexibility
                 assert!(haiku_response.response.split_whitespace().count() <= 10); // Allow flexibility
-                assert!(sonnet_response.response.split_whitespace().count() <= 30); // Sonnet tends to be more verbose
+                assert!(sonnet_response.response.split_whitespace().count() <= 30);
+                // Sonnet tends to be more verbose
             }
         }
         Err(e) => {
@@ -291,7 +302,8 @@ async fn test_agent_chat_system_prompt_behavior() {
         .system_prompt("You are a casual, friendly assistant. Use informal language and be brief.")
         .temperature(0.1) // Low temperature for consistency
         .build()
-        .await.expect("Failed to build casual agent");
+        .await
+        .expect("Failed to build casual agent");
 
     let question = "How are you doing today?";
 
@@ -332,11 +344,11 @@ impl Tool for TestCalculatorTool {
     fn name(&self) -> &str {
         "test_calculator"
     }
-    
+
     fn description(&self) -> &str {
         "Performs basic arithmetic calculations for testing"
     }
-    
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
@@ -349,8 +361,12 @@ impl Tool for TestCalculatorTool {
             "required": ["expression"]
         })
     }
-    
-    async fn execute(&self, parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
+
+    async fn execute(
+        &self,
+        parameters: Option<Value>,
+        _agent_context: Option<&crate::agent::AgentContext>,
+    ) -> Result<ToolResult, ToolError> {
         let params = parameters.unwrap_or(json!({}));
         let expression = params
             .get("expression")
@@ -371,7 +387,7 @@ impl Tool for TestCalculatorTool {
             "expression": expression,
             "message": format!("The result of {} is {}", expression, result)
         });
-        
+
         Ok(ToolResult::success(response))
     }
 }
@@ -385,11 +401,11 @@ impl Tool for TestTimeTool {
     fn name(&self) -> &str {
         "test_time"
     }
-    
+
     fn description(&self) -> &str {
         "Returns the current time and date"
     }
-    
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
@@ -397,8 +413,12 @@ impl Tool for TestTimeTool {
             "required": []
         })
     }
-    
-    async fn execute(&self, _parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
+
+    async fn execute(
+        &self,
+        _parameters: Option<Value>,
+        _agent_context: Option<&crate::agent::AgentContext>,
+    ) -> Result<ToolResult, ToolError> {
         use chrono::Utc;
         let now = Utc::now();
 
@@ -407,7 +427,7 @@ impl Tool for TestTimeTool {
             "timezone": "UTC",
             "message": format!("The current time is {}", now.format("%Y-%m-%d %H:%M:%S UTC"))
         });
-        
+
         Ok(ToolResult::success(response))
     }
 }
@@ -418,8 +438,14 @@ async fn test_tool_registry_generates_llm_config() {
     let registry = ToolRegistry::new();
 
     // Register test tools
-    registry.register_tool(Box::new(TestCalculatorTool)).await.unwrap();
-    registry.register_tool(Box::new(TestTimeTool)).await.unwrap();
+    registry
+        .register_tool(Box::new(TestCalculatorTool))
+        .await
+        .unwrap();
+    registry
+        .register_tool(Box::new(TestTimeTool))
+        .await
+        .unwrap();
 
     // Get tool configuration for LLM
     let tool_config = registry.get_tool_config().await;
@@ -509,12 +535,19 @@ async fn test_event_loop_llm_driven_tool_selection() {
     let agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45) // Use reliable model
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Create tool registry with test tools
     let tool_registry = ToolRegistry::new();
-    tool_registry.register_tool(Box::new(TestCalculatorTool)).await.unwrap();
-    tool_registry.register_tool(Box::new(TestTimeTool)).await.unwrap();
+    tool_registry
+        .register_tool(Box::new(TestCalculatorTool))
+        .await
+        .unwrap();
+    tool_registry
+        .register_tool(Box::new(TestTimeTool))
+        .await
+        .unwrap();
 
     // Configure event loop with shorter limits for testing
     let config = EventLoopConfig {
@@ -583,7 +616,7 @@ async fn test_event_loop_llm_driven_tool_selection() {
     }
 }
 
-/// Test event loop handles tool use responses correctly  
+/// Test event loop handles tool use responses correctly
 #[tokio::test]
 async fn test_event_loop_tool_use_response_parsing() {
     // Skip test if no AWS credentials
@@ -596,11 +629,15 @@ async fn test_event_loop_tool_use_response_parsing() {
     let agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Create tool registry with simple test tool
     let tool_registry = ToolRegistry::new();
-    tool_registry.register_tool(Box::new(TestTimeTool)).await.unwrap();
+    tool_registry
+        .register_tool(Box::new(TestTimeTool))
+        .await
+        .unwrap();
 
     let config = EventLoopConfig {
         max_cycles: 2,
@@ -673,18 +710,29 @@ async fn test_event_loop_multiple_tools_llm_choice() {
     let agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Create tool registry with multiple tools
     let tool_registry = ToolRegistry::new();
-    tool_registry.register_tool(Box::new(TestCalculatorTool)).await.unwrap();
-    tool_registry.register_tool(Box::new(TestTimeTool)).await.unwrap();
+    tool_registry
+        .register_tool(Box::new(TestCalculatorTool))
+        .await
+        .unwrap();
+    tool_registry
+        .register_tool(Box::new(TestTimeTool))
+        .await
+        .unwrap();
 
     // Also add built-in tools to test LLM choice among many options
-    tool_registry.register_tool(Box::new(CalculatorTool::new())).await.unwrap();
+    tool_registry
+        .register_tool(Box::new(CalculatorTool::new()))
+        .await
+        .unwrap();
     tool_registry
         .register_tool(Box::new(CurrentTimeTool::new()))
-        .await.unwrap();
+        .await
+        .unwrap();
 
     let config = EventLoopConfig {
         max_cycles: 3,
@@ -777,11 +825,15 @@ async fn test_event_loop_conversation_context_with_tools() {
     let agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Create tool registry
     let tool_registry = ToolRegistry::new();
-    tool_registry.register_tool(Box::new(TestCalculatorTool)).await.unwrap();
+    tool_registry
+        .register_tool(Box::new(TestCalculatorTool))
+        .await
+        .unwrap();
 
     let config = EventLoopConfig {
         max_cycles: 4,
@@ -865,11 +917,11 @@ async fn test_event_loop_handles_tool_failures() {
         fn name(&self) -> &str {
             "failing_tool"
         }
-        
+
         fn description(&self) -> &str {
             "A tool that always fails for testing error handling"
         }
-        
+
         fn parameters_schema(&self) -> Value {
             json!({
                 "type": "object",
@@ -877,8 +929,12 @@ async fn test_event_loop_handles_tool_failures() {
                 "required": []
             })
         }
-        
-        async fn execute(&self, _parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
+
+        async fn execute(
+            &self,
+            _parameters: Option<Value>,
+            _agent_context: Option<&crate::agent::AgentContext>,
+        ) -> Result<ToolResult, ToolError> {
             Err(ToolError::ExecutionFailed {
                 message: "This tool always fails for testing purposes".to_string(),
             })
@@ -889,12 +945,19 @@ async fn test_event_loop_handles_tool_failures() {
     let agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // Create tool registry with failing tool
     let tool_registry = ToolRegistry::new();
-    tool_registry.register_tool(Box::new(FailingTestTool)).await.unwrap();
-    tool_registry.register_tool(Box::new(TestCalculatorTool)).await.unwrap(); // Also add a working tool
+    tool_registry
+        .register_tool(Box::new(FailingTestTool))
+        .await
+        .unwrap();
+    tool_registry
+        .register_tool(Box::new(TestCalculatorTool))
+        .await
+        .unwrap(); // Also add a working tool
 
     let config = EventLoopConfig {
         max_cycles: 3,
@@ -979,7 +1042,7 @@ async fn test_callback_integration_end_to_end() {
 
     println!("🚀 Testing end-to-end callback integration...");
 
-    use crate::agent::callbacks::{CallbackHandler, CallbackEvent, CallbackError};
+    use crate::agent::callbacks::{CallbackError, CallbackEvent, CallbackHandler};
     use std::sync::{Arc, Mutex};
 
     // Test callback handler that records all events
@@ -1008,49 +1071,92 @@ async fn test_callback_integration_end_to_end() {
                 CallbackEvent::EventLoopStart { loop_id, .. } => {
                     format!("EventLoopStart({})", loop_id)
                 }
-                CallbackEvent::CycleStart { cycle_id, cycle_number } => {
+                CallbackEvent::CycleStart {
+                    cycle_id,
+                    cycle_number,
+                } => {
                     format!("CycleStart({}, cycle_{})", cycle_id, cycle_number)
                 }
-                CallbackEvent::ModelStart { provider, model_id, tools_available, .. } => {
-                    format!("ModelStart({:?}/{}, {} tools)", provider, model_id, tools_available)
+                CallbackEvent::ModelStart {
+                    provider,
+                    model_id,
+                    tools_available,
+                    ..
+                } => {
+                    format!(
+                        "ModelStart({:?}/{}, {} tools)",
+                        provider, model_id, tools_available
+                    )
                 }
-                CallbackEvent::ModelComplete { response, duration, .. } => {
+                CallbackEvent::ModelComplete {
+                    response, duration, ..
+                } => {
                     format!("ModelComplete({} chars, {:?})", response.len(), duration)
                 }
-                CallbackEvent::ContentDelta { delta, complete, .. } => {
-                    format!("ContentDelta({} chars, complete: {})", delta.len(), complete)
+                CallbackEvent::ContentDelta {
+                    delta, complete, ..
+                } => {
+                    format!(
+                        "ContentDelta({} chars, complete: {})",
+                        delta.len(),
+                        complete
+                    )
                 }
                 CallbackEvent::ToolStart { tool_name, .. } => {
                     format!("ToolStart({})", tool_name)
                 }
-                CallbackEvent::ToolComplete { tool_name, output, error, .. } => {
+                CallbackEvent::ToolComplete {
+                    tool_name,
+                    output,
+                    error,
+                    ..
+                } => {
                     if error.is_some() {
                         format!("ToolComplete({}, failed)", tool_name)
                     } else {
                         format!("ToolComplete({}, success: {})", tool_name, output.is_some())
                     }
                 }
-                CallbackEvent::ParallelStart { tool_count, max_parallel } => {
-                    format!("ParallelStart({} tools, max_parallel: {})", tool_count, max_parallel)
+                CallbackEvent::ParallelStart {
+                    tool_count,
+                    max_parallel,
+                } => {
+                    format!(
+                        "ParallelStart({} tools, max_parallel: {})",
+                        tool_count, max_parallel
+                    )
                 }
-                CallbackEvent::ParallelProgress { completed, total, running } => {
-                    format!("ParallelProgress({}/{} completed, {} running)", completed, total, running)
+                CallbackEvent::ParallelProgress {
+                    completed,
+                    total,
+                    running,
+                } => {
+                    format!(
+                        "ParallelProgress({}/{} completed, {} running)",
+                        completed, total, running
+                    )
                 }
-                CallbackEvent::ParallelComplete { total_duration, success_count, failure_count } => {
-                    format!("ParallelComplete({:?}, {} success, {} failures)", total_duration, success_count, failure_count)
+                CallbackEvent::ParallelComplete {
+                    total_duration,
+                    success_count,
+                    failure_count,
+                } => {
+                    format!(
+                        "ParallelComplete({:?}, {} success, {} failures)",
+                        total_duration, success_count, failure_count
+                    )
                 }
                 CallbackEvent::EventLoopComplete { result, .. } => {
-                    format!("EventLoopComplete(success: {}, {} cycles)", result.success, result.cycles_executed)
+                    format!(
+                        "EventLoopComplete(success: {}, {} cycles)",
+                        result.success, result.cycles_executed
+                    )
                 }
                 CallbackEvent::Error { error, context } => {
                     format!("Error({}, {})", context, error)
                 }
-                CallbackEvent::EvaluationStart { .. } => {
-                    "EvaluationStart".to_string()
-                }
-                CallbackEvent::EvaluationComplete { .. } => {
-                    "EvaluationComplete".to_string()
-                }
+                CallbackEvent::EvaluationStart { .. } => "EvaluationStart".to_string(),
+                CallbackEvent::EvaluationComplete { .. } => "EvaluationComplete".to_string(),
             };
 
             self.events.lock().unwrap().push(event_description);
@@ -1106,13 +1212,21 @@ async fn test_callback_integration_end_to_end() {
             assert!(has_loop_complete, "Should capture EventLoopComplete event");
 
             // Check if tools were used (the LLM might choose to calculate 25+37 mentally)
-            let has_tool_events = events.iter().any(|e| e.starts_with("ToolStart") || e.starts_with("ToolComplete"));
+            let has_tool_events = events
+                .iter()
+                .any(|e| e.starts_with("ToolStart") || e.starts_with("ToolComplete"));
             if has_tool_events {
                 println!("✅ Tool execution callbacks captured");
                 let has_tool_start = events.iter().any(|e| e.starts_with("ToolStart"));
                 let has_tool_complete = events.iter().any(|e| e.starts_with("ToolComplete"));
-                assert!(has_tool_start, "Should capture ToolStart event when tools are used");
-                assert!(has_tool_complete, "Should capture ToolComplete event when tools are used");
+                assert!(
+                    has_tool_start,
+                    "Should capture ToolStart event when tools are used"
+                );
+                assert!(
+                    has_tool_complete,
+                    "Should capture ToolComplete event when tools are used"
+                );
             } else {
                 println!("ℹ️  LLM solved the math problem without using tools (valid behavior)");
             }
@@ -1122,12 +1236,22 @@ async fn test_callback_integration_end_to_end() {
             if has_content_delta {
                 println!("✅ Streaming content delta callbacks captured");
                 // Verify we have multiple deltas that eventually complete
-                let content_deltas: Vec<_> = events.iter().filter(|e| e.starts_with("ContentDelta")).collect();
-                assert!(!content_deltas.is_empty(), "Should have content delta events");
-                
+                let content_deltas: Vec<_> = events
+                    .iter()
+                    .filter(|e| e.starts_with("ContentDelta"))
+                    .collect();
+                assert!(
+                    !content_deltas.is_empty(),
+                    "Should have content delta events"
+                );
+
                 // Check that at least one delta is marked as complete
-                let has_complete_delta = content_deltas.iter().any(|e| e.contains("complete: true"));
-                assert!(has_complete_delta, "Should have at least one complete content delta");
+                let has_complete_delta =
+                    content_deltas.iter().any(|e| e.contains("complete: true"));
+                assert!(
+                    has_complete_delta,
+                    "Should have at least one complete content delta"
+                );
             } else {
                 println!("ℹ️  No content deltas captured (might be non-streaming mode)");
             }
@@ -1136,19 +1260,19 @@ async fn test_callback_integration_end_to_end() {
         }
         Err(e) => {
             eprintln!("❌ Agent execution failed: {}", e);
-            
+
             // Still check if error callbacks were captured
             let events = events_tracker.lock().unwrap().clone();
             println!("📋 Error case - callback events captured: {}", events.len());
             for (i, event) in events.iter().enumerate() {
                 println!("  {}: {}", i + 1, event);
             }
-            
+
             let has_error_event = events.iter().any(|e| e.starts_with("Error"));
             if has_error_event {
                 println!("✅ Error callback captured successfully");
             }
-            
+
             // For integration tests, we expect the API call might fail
             println!("⚠️  Agent execution failed, but this is acceptable in test environment");
         }

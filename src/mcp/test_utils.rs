@@ -3,12 +3,12 @@
 //! This module provides utilities for managing test MCP servers during integration testing,
 //! including spawning external servers, managing their lifecycle, and communicating with them.
 
-use crate::mcp::{MCPClient, MCPClientConfig, StdioTransport};
 use crate::error::StoodError;
+use crate::mcp::{MCPClient, MCPClientConfig, StdioTransport};
 use crate::Result;
-use tokio::process::{Child, Command};
-use std::process::Stdio;
 use std::path::Path;
+use std::process::Stdio;
+use tokio::process::{Child, Command};
 use tokio::time::{timeout, Duration};
 
 /// Configuration for a test MCP server
@@ -122,33 +122,33 @@ impl TestMCPServer {
         }
 
         // Spawn process
-        let mut process = command.spawn().map_err(|e| {
-            StoodError::ConfigurationError {
-                message: format!("Failed to spawn {} server: {}", config.name, e)
-            }
-        })?;
+        let mut process = command
+            .spawn()
+            .map_err(|e| StoodError::ConfigurationError {
+                message: format!("Failed to spawn {} server: {}", config.name, e),
+            })?;
 
         // Create stdio transport from process handles
-        let stdin = process.stdin.take().ok_or_else(|| {
-            StoodError::ConfigurationError {
-                message: "Failed to get stdin handle".to_string()
-            }
-        })?;
-        
-        let stdout = process.stdout.take().ok_or_else(|| {
-            StoodError::ConfigurationError {
-                message: "Failed to get stdout handle".to_string()
-            }
-        })?;
+        let stdin = process
+            .stdin
+            .take()
+            .ok_or_else(|| StoodError::ConfigurationError {
+                message: "Failed to get stdin handle".to_string(),
+            })?;
+
+        let stdout = process
+            .stdout
+            .take()
+            .ok_or_else(|| StoodError::ConfigurationError {
+                message: "Failed to get stdout handle".to_string(),
+            })?;
 
         let transport = StdioTransport::from_handles(stdin, stdout);
         let client_config = MCPClientConfig::default();
         let mut client = MCPClient::new(client_config, Box::new(transport));
 
         // Initialize connection with timeout
-        let init_result = timeout(config.startup_timeout, async {
-            client.connect().await
-        }).await;
+        let init_result = timeout(config.startup_timeout, async { client.connect().await }).await;
 
         match init_result {
             Ok(Ok(_)) => {
@@ -160,15 +160,19 @@ impl TestMCPServer {
                 })
             }
             Ok(Err(e)) => {
-                let _ = process.kill();
+                drop(process.kill());
                 Err(StoodError::ConfigurationError {
-                    message: format!("Failed to initialize {}: {}", config.name, e)
+                    message: format!("Failed to initialize {}: {}", config.name, e),
                 })
             }
             Err(_) => {
-                let _ = process.kill();
+                drop(process.kill());
                 Err(StoodError::ConfigurationError {
-                    message: format!("Timeout initializing {} ({}s)", config.name, config.startup_timeout.as_secs())
+                    message: format!(
+                        "Timeout initializing {} ({}s)",
+                        config.name,
+                        config.startup_timeout.as_secs()
+                    ),
                 })
             }
         }
@@ -200,7 +204,7 @@ impl TestMCPServer {
 
         // Try to terminate gracefully
         let _ = self.process.kill().await;
-        
+
         // Wait for process to exit
         match self.process.wait().await {
             Ok(status) => {
@@ -281,7 +285,7 @@ impl Default for TestServerManager {
 /// Utility functions for common test scenarios
 pub mod utils {
     use super::*;
-    
+
     /// Spawn the Python test server from examples directory
     pub async fn spawn_python_test_server() -> Result<TestMCPServer> {
         let server_path = "examples/test-servers/python-server.py";
@@ -299,10 +303,11 @@ pub mod utils {
     /// Spawn both Python and Node.js test servers
     pub async fn spawn_all_test_servers() -> Result<TestServerManager> {
         let mut manager = TestServerManager::new();
-        
+
         // Try to spawn Python server
-        let python_config = TestServerConfig::python_server("examples/test-servers/python-server.py");
-        if let Ok(_) = manager.spawn_server(python_config).await {
+        let python_config =
+            TestServerConfig::python_server("examples/test-servers/python-server.py");
+        if manager.spawn_server(python_config).await.is_ok() {
             tracing::info!("Python test server spawned successfully");
         } else {
             tracing::warn!("Failed to spawn Python test server");
@@ -310,7 +315,7 @@ pub mod utils {
 
         // Try to spawn Node.js server
         let nodejs_config = TestServerConfig::nodejs_server("examples/test-servers/node-server.js");
-        if let Ok(_) = manager.spawn_server(nodejs_config).await {
+        if manager.spawn_server(nodejs_config).await.is_ok() {
             tracing::info!("Node.js test server spawned successfully");
         } else {
             tracing::warn!("Failed to spawn Node.js test server");
@@ -337,8 +342,11 @@ mod tests {
         let config = TestServerConfig::nodejs_server("test.js")
             .with_env_var("NODE_ENV".to_string(), "test".to_string())
             .with_working_dir("/tmp".to_string());
-        
-        assert_eq!(config.env_vars, vec![("NODE_ENV".to_string(), "test".to_string())]);
+
+        assert_eq!(
+            config.env_vars,
+            vec![("NODE_ENV".to_string(), "test".to_string())]
+        );
         assert_eq!(config.working_dir, Some("/tmp".to_string()));
     }
 

@@ -163,8 +163,8 @@
 //! - Bedrock formatting: O(n) with zero-copy where possible
 //! - Memory usage: Scales linearly with conversation length up to limits
 
-use crate::types::{Message, MessageRole, Messages};
 use crate::llm::traits::LlmModel;
+use crate::types::{Message, MessageRole, Messages};
 use crate::Result;
 use serde_json::{json, Value};
 

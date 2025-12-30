@@ -984,7 +984,7 @@ async fn get_process_memory_mb() -> super::Result<usize> {
         let status = fs::read_to_string("/proc/self/status").map_err(|e| {
             Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to read proc status: {}", e))) as Box<dyn std::error::Error + Send + Sync>
         })?;
-        
+
         for line in status.lines() {
             if line.starts_with("VmRSS:") {
                 let parts: Vec<&str> = line.split_whitespace().collect();

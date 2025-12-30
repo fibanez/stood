@@ -3,15 +3,15 @@
 //! This module provides a provider-agnostic test framework that can verify
 //! all Stood features across different LLM providers and models.
 
-pub mod test_cases;
-pub mod token_counting_tests;
 pub mod assertions;
 pub mod config;
 pub mod fixtures;
+pub mod test_cases;
+pub mod token_counting_tests;
 
 use crate::llm::traits::ProviderType;
-use std::time::Duration;
 use serde_json::Value;
+use std::time::Duration;
 
 /// Test result for a single verification
 #[derive(Debug, Clone)]
@@ -83,25 +83,25 @@ impl TestConfig {
 pub trait VerificationTest {
     /// Test name for reporting
     fn test_name(&self) -> &'static str;
-    
+
     /// Test description
     fn description(&self) -> &'static str;
-    
+
     /// Test category (core, tools, streaming, etc.)
     fn category(&self) -> TestCategory;
-    
+
     /// Whether this test requires specific provider features
     fn required_features(&self) -> Vec<ProviderFeature>;
-    
+
     /// Execute the test with the given configuration
     async fn execute(&self, config: &TestConfig) -> VerificationResult;
-    
+
     /// Setup any required test state
     async fn setup(&self, _config: &TestConfig) -> Result<(), Box<dyn std::error::Error>> {
         // Default: no setup required
         Ok(())
     }
-    
+
     /// Cleanup after test execution
     async fn cleanup(&self, _config: &TestConfig) -> Result<(), Box<dyn std::error::Error>> {
         // Default: no cleanup required
@@ -112,14 +112,14 @@ pub trait VerificationTest {
 /// Test categories for organization
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestCategory {
-    Core,           // Basic provider functionality
-    Tools,          // Tool calling and execution
-    Streaming,      // Real-time streaming features
-    Agentic,        // Event loop and multi-step reasoning
-    Telemetry,      // Observability and monitoring
-    ErrorHandling,  // Error resilience and recovery
-    Advanced,       // MCP and advanced features
-    Performance,    // Benchmarking and optimization
+    Core,          // Basic provider functionality
+    Tools,         // Tool calling and execution
+    Streaming,     // Real-time streaming features
+    Agentic,       // Event loop and multi-step reasoning
+    Telemetry,     // Observability and monitoring
+    ErrorHandling, // Error resilience and recovery
+    Advanced,      // MCP and advanced features
+    Performance,   // Benchmarking and optimization
 }
 
 /// Provider features that tests may require
@@ -150,59 +150,70 @@ impl VerificationSuite {
             tests: Vec::new(),
         }
     }
-    
+
     /// Add a test to the suite
     pub fn add_test(mut self, test: Box<dyn VerificationTest + Send + Sync>) -> Self {
         self.tests.push(test);
         self
     }
-    
+
     /// Run all tests in the suite
     pub async fn run(&self, config: &TestConfig) -> Vec<VerificationResult> {
         let mut results = Vec::new();
-        
+
         println!("🚀 Running verification suite: {}", self.name);
-        println!("📋 Provider: {:?}, Model: {}", config.provider, config.model_id);
-        
+        println!(
+            "📋 Provider: {:?}, Model: {}",
+            config.provider, config.model_id
+        );
+
         for test in &self.tests {
             // Check if provider supports required features
             if !self.provider_supports_features(config.provider, &test.required_features()) {
                 println!("⏭️  Skipping {} - unsupported features", test.test_name());
                 continue;
             }
-            
+
             println!("🧪 Running test: {}", test.test_name());
-            
+
             // Setup
             if let Err(e) = test.setup(config).await {
                 println!("❌ Setup failed for {}: {}", test.test_name(), e);
                 continue;
             }
-            
+
             // Execute
             let result = test.execute(config).await;
-            
+
             // Cleanup
             if let Err(e) = test.cleanup(config).await {
                 println!("⚠️  Cleanup failed for {}: {}", test.test_name(), e);
             }
-            
+
             // Report result
             if result.success {
                 println!("✅ {} - {:?}", test.test_name(), result.duration);
             } else {
-                println!("❌ {} - {}", test.test_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                println!(
+                    "❌ {} - {}",
+                    test.test_name(),
+                    result.error.as_deref().unwrap_or("Unknown error")
+                );
             }
-            
+
             results.push(result);
         }
-        
+
         self.print_summary(&results);
         results
     }
-    
+
     /// Check if provider supports the required features
-    fn provider_supports_features(&self, provider: ProviderType, features: &[ProviderFeature]) -> bool {
+    fn provider_supports_features(
+        &self,
+        provider: ProviderType,
+        features: &[ProviderFeature],
+    ) -> bool {
         for feature in features {
             if !self.provider_has_feature(provider, feature) {
                 return false;
@@ -210,51 +221,55 @@ impl VerificationSuite {
         }
         true
     }
-    
+
     /// Check if a provider supports a specific feature
     fn provider_has_feature(&self, provider: ProviderType, feature: &ProviderFeature) -> bool {
         match (provider, feature) {
             // All providers support basic chat
             (_, ProviderFeature::BasicChat) => true,
-            
+
             // Tool calling support varies
             (ProviderType::Bedrock, ProviderFeature::ToolCalling) => true,
             (ProviderType::LmStudio, ProviderFeature::ToolCalling) => true, // Depends on model
             (ProviderType::Anthropic, ProviderFeature::ToolCalling) => true,
-            
+
             // Streaming support
             (ProviderType::Bedrock, ProviderFeature::Streaming) => true,
             (ProviderType::LmStudio, ProviderFeature::Streaming) => true,
             (ProviderType::Anthropic, ProviderFeature::Streaming) => false, // TODO
-            
+
             // Advanced features
             (ProviderType::Anthropic, ProviderFeature::ThinkingMode) => false, // TODO
             (ProviderType::Bedrock, ProviderFeature::Vision) => true,
             (ProviderType::Anthropic, ProviderFeature::Vision) => false, // TODO
-            
+
             // Default: assume not supported
             _ => false,
         }
     }
-    
+
     /// Print test suite summary
     fn print_summary(&self, results: &[VerificationResult]) {
         let total = results.len();
         let passed = results.iter().filter(|r| r.success).count();
         let failed = total - passed;
-        
+
         println!("\n📊 Test Suite Summary: {}", self.name);
         println!("   Total:  {}", total);
         println!("   Passed: {} ✅", passed);
         println!("   Failed: {} ❌", failed);
-        
+
         if failed > 0 {
             println!("\n❌ Failed Tests:");
             for result in results.iter().filter(|r| !r.success) {
-                println!("   - {}: {}", result.test_name, result.error.as_deref().unwrap_or("Unknown"));
+                println!(
+                    "   - {}: {}",
+                    result.test_name,
+                    result.error.as_deref().unwrap_or("Unknown")
+                );
             }
         }
-        
+
         let success_rate = (passed as f64 / total as f64) * 100.0;
         println!("   Success Rate: {:.1}%\n", success_rate);
     }
@@ -266,12 +281,12 @@ pub async fn run_cross_provider_tests(
     configs: &[TestConfig],
 ) -> std::collections::HashMap<ProviderType, Vec<VerificationResult>> {
     let mut all_results = std::collections::HashMap::new();
-    
+
     for config in configs {
         let results = suite.run(config).await;
         all_results.insert(config.provider, results);
     }
-    
+
     all_results
 }
 
@@ -281,25 +296,30 @@ pub fn generate_comparison_report(
 ) -> String {
     let mut report = String::new();
     report.push_str("# Cross-Provider Verification Report\n\n");
-    
+
     // Success rates by provider
     report.push_str("## Success Rates by Provider\n\n");
     for (provider, provider_results) in results {
         let total = provider_results.len();
         let passed = provider_results.iter().filter(|r| r.success).count();
         let rate = (passed as f64 / total as f64) * 100.0;
-        report.push_str(&format!("- {:?}: {}/{} ({:.1}%)\n", provider, passed, total, rate));
+        report.push_str(&format!(
+            "- {:?}: {}/{} ({:.1}%)\n",
+            provider, passed, total, rate
+        ));
     }
-    
+
     // Performance comparison
     report.push_str("\n## Average Response Times\n\n");
     for (provider, provider_results) in results {
-        let avg_duration = provider_results.iter()
+        let avg_duration = provider_results
+            .iter()
             .filter(|r| r.success)
             .map(|r| r.duration.as_millis() as f64)
-            .sum::<f64>() / provider_results.iter().filter(|r| r.success).count() as f64;
+            .sum::<f64>()
+            / provider_results.iter().filter(|r| r.success).count() as f64;
         report.push_str(&format!("- {:?}: {:.0}ms\n", provider, avg_duration));
     }
-    
+
     report
 }

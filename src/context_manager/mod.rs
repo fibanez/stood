@@ -86,7 +86,7 @@ pub struct ContextUsage {
 pub struct ContentBreakdown {
     /// Characters in text content
     pub text_chars: usize,
-    /// Characters in tool use content  
+    /// Characters in tool use content
     pub tool_use_chars: usize,
     /// Characters in tool result content
     pub tool_result_chars: usize,

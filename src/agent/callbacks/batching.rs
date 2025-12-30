@@ -41,26 +41,32 @@ pub struct EventBatch {
     pub created_at: Instant,
 }
 
-impl EventBatch {
-    pub fn new() -> Self {
+impl Default for EventBatch {
+    fn default() -> Self {
         Self {
             events: Vec::new(),
             created_at: Instant::now(),
         }
     }
-    
+}
+
+impl EventBatch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn add_event(&mut self, event: CallbackEvent) {
         self.events.push(event);
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
     }
-    
+
     pub fn len(&self) -> usize {
         self.events.len()
     }
-    
+
     pub fn age(&self) -> Duration {
         self.created_at.elapsed()
     }
@@ -80,7 +86,7 @@ impl BatchingCallbackHandler {
     pub fn new(inner_handler: Arc<dyn CallbackHandler>, config: BatchConfig) -> Self {
         let batch = Arc::new(Mutex::new(EventBatch::new()));
         let flush_notifier = Arc::new(Notify::new());
-        
+
         // Spawn background task for periodic flushing
         let flush_task = Self::spawn_flush_task(
             Arc::clone(&batch),
@@ -88,7 +94,7 @@ impl BatchingCallbackHandler {
             Arc::clone(&inner_handler),
             config.max_batch_delay,
         );
-        
+
         Self {
             inner_handler,
             config,
@@ -97,12 +103,12 @@ impl BatchingCallbackHandler {
             _flush_task: flush_task,
         }
     }
-    
+
     /// Create a batching handler with default configuration
     pub fn with_defaults(inner_handler: Arc<dyn CallbackHandler>) -> Self {
         Self::new(inner_handler, BatchConfig::default())
     }
-    
+
     /// Spawn background task for periodic batch flushing
     fn spawn_flush_task(
         batch: Arc<Mutex<EventBatch>>,
@@ -121,19 +127,19 @@ impl BatchingCallbackHandler {
                         // Timeout-based flush
                     }
                 }
-                
+
                 // Flush the batch
                 let events_to_flush = {
                     let mut batch_guard = batch.lock().await;
                     if batch_guard.is_empty() {
                         continue;
                     }
-                    
+
                     let events = batch_guard.events.clone();
                     *batch_guard = EventBatch::new(); // Reset batch
                     events
                 };
-                
+
                 // Send all events to the inner handler
                 for event in events_to_flush {
                     if let Err(e) = handler.handle_event(event).await {
@@ -143,7 +149,7 @@ impl BatchingCallbackHandler {
             }
         })
     }
-    
+
     /// Determine if an event should be batched
     fn should_batch_event(&self, event: &CallbackEvent) -> bool {
         match event {
@@ -152,14 +158,14 @@ impl BatchingCallbackHandler {
                 self.config.batch_tool_events
             }
             // Don't batch critical events like errors or completion
-            CallbackEvent::Error { .. } 
-            | CallbackEvent::EventLoopComplete { .. } 
+            CallbackEvent::Error { .. }
+            | CallbackEvent::EventLoopComplete { .. }
             | CallbackEvent::EventLoopStart { .. } => false,
             // Default to not batching for other events
             _ => false,
         }
     }
-    
+
     /// Force flush the current batch
     pub async fn flush(&self) -> Result<(), CallbackError> {
         let events_to_flush = {
@@ -167,17 +173,17 @@ impl BatchingCallbackHandler {
             if batch_guard.is_empty() {
                 return Ok(());
             }
-            
+
             let events = batch_guard.events.clone();
             *batch_guard = EventBatch::new();
             events
         };
-        
+
         // Send all events to the inner handler
         for event in events_to_flush {
             self.inner_handler.handle_event(event).await?;
         }
-        
+
         Ok(())
     }
 }
@@ -189,16 +195,16 @@ impl CallbackHandler for BatchingCallbackHandler {
             let should_flush = {
                 let mut batch_guard = self.batch.lock().await;
                 batch_guard.add_event(event);
-                
+
                 // Check if we should flush based on size or age
                 batch_guard.len() >= self.config.max_batch_size
                     || batch_guard.age() >= self.config.max_batch_delay
             };
-            
+
             if should_flush {
                 self.flush_notifier.notify_one();
             }
-            
+
             Ok(())
         } else {
             // Send non-batchable events immediately
@@ -231,7 +237,7 @@ mod tests {
                 count: Arc::new(AtomicUsize::new(0)),
             }
         }
-        
+
         fn get_count(&self) -> usize {
             self.count.load(Ordering::Relaxed)
         }
@@ -254,9 +260,10 @@ mod tests {
             batch_content_deltas: true,
             batch_tool_events: false,
         };
-        
-        let batching_handler = BatchingCallbackHandler::new(inner.clone() as Arc<dyn CallbackHandler>, config);
-        
+
+        let batching_handler =
+            BatchingCallbackHandler::new(inner.clone() as Arc<dyn CallbackHandler>, config);
+
         // Send some content delta events
         for i in 0..5 {
             let event = CallbackEvent::ContentDelta {
@@ -266,31 +273,32 @@ mod tests {
             };
             batching_handler.handle_event(event).await.unwrap();
         }
-        
+
         // Should have triggered a batch flush after 3 events
         // Wait a bit for processing
         tokio::time::sleep(Duration::from_millis(10)).await;
         assert!(inner.get_count() >= 3);
-        
+
         // Flush remaining events
         batching_handler.flush().await.unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;
         assert_eq!(inner.get_count(), 5);
     }
-    
+
     #[tokio::test]
     async fn test_non_batchable_events() {
         let inner = Arc::new(CountingCallbackHandler::new());
         let config = BatchConfig::default();
-        let batching_handler = BatchingCallbackHandler::new(inner.clone() as Arc<dyn CallbackHandler>, config);
-        
+        let batching_handler =
+            BatchingCallbackHandler::new(inner.clone() as Arc<dyn CallbackHandler>, config);
+
         // Send an error event (should not be batched)
         let event = CallbackEvent::Error {
             error: crate::StoodError::model_error("test error".to_string()),
             context: "test".to_string(),
         };
         batching_handler.handle_event(event).await.unwrap();
-        
+
         // Should be processed immediately
         tokio::time::sleep(Duration::from_millis(10)).await;
         assert_eq!(inner.get_count(), 1);

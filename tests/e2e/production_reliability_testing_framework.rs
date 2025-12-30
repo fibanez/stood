@@ -386,7 +386,7 @@ impl ReliabilityTestExecutor {
 
         let success_rate = success_count as f64 / baseline_operations as f64;
 
-        println!("✅ Baseline established: avg_response={:?}, success_rate={:.2}%", 
+        println!("✅ Baseline established: avg_response={:?}, success_rate={:.2}%",
                  average_response_time, success_rate * 100.0);
 
         Ok(PerformanceBaseline {
@@ -714,7 +714,7 @@ impl ReliabilityTestExecutor {
                         affected_operations: recent_results.len(),
                     });
 
-                    println!("🚨 System degradation detected: success_rate={:.2}%, avg_response_time={}ms", 
+                    println!("🚨 System degradation detected: success_rate={:.2}%, avg_response_time={}ms",
                              success_rate * 100.0, avg_response_time);
                 }
             } else if let Some(mut degradation) = monitor.current_degradation.take() {

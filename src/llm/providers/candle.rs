@@ -2,18 +2,21 @@
 //!
 //! This provider uses the Candle ML framework for running models locally
 //! with hardware acceleration (CPU, CUDA, Metal).
-//! 
+//!
 //! **Status: NOT YET IMPLEMENTED** - See README.md "TODO - Work in Progress" section
 //! This is a placeholder implementation that returns appropriate errors.
 //! Future implementation will support local Rust-based inference via Candle.
 
-use crate::llm::traits::{LlmProvider, ProviderType, LlmError, ChatResponse, ChatConfig, Tool, StreamEvent, ProviderCapabilities, HealthStatus};
+use crate::llm::traits::{
+    ChatConfig, ChatResponse, HealthStatus, LlmError, LlmProvider, ProviderCapabilities,
+    ProviderType, StreamEvent, Tool,
+};
 use crate::types::Messages;
 use async_trait::async_trait;
 use futures::Stream;
 
 /// Candle provider - NOT YET IMPLEMENTED
-/// 
+///
 /// This provider uses Candle for local model inference with hardware acceleration.
 /// See README.md "🚧 Planned Providers (Not Yet Implemented)" section.
 #[derive(Debug)]
@@ -34,19 +37,16 @@ impl CandleProvider {
             if candle_core::Device::cuda_if_available(0).is_ok() {
                 return "cuda".to_string();
             }
-            
+
             #[cfg(feature = "metal")]
             if candle_core::Device::metal_if_available().is_ok() {
                 return "metal".to_string();
             }
-            
+
             "cpu".to_string()
         });
-        
-        Ok(Self {
-            cache_dir,
-            device,
-        })
+
+        Ok(Self { cache_dir, device })
     }
 }
 
@@ -63,7 +63,7 @@ impl LlmProvider for CandleProvider {
             provider: ProviderType::Candle,
         })
     }
-    
+
     async fn chat_with_tools(
         &self,
         _model_id: &str,
@@ -76,7 +76,7 @@ impl LlmProvider for CandleProvider {
             provider: ProviderType::Candle,
         })
     }
-    
+
     async fn chat_streaming(
         &self,
         _model_id: &str,
@@ -88,7 +88,7 @@ impl LlmProvider for CandleProvider {
             provider: ProviderType::Candle,
         })
     }
-    
+
     async fn chat_streaming_with_tools(
         &self,
         _model_id: &str,
@@ -101,7 +101,7 @@ impl LlmProvider for CandleProvider {
             provider: ProviderType::Candle,
         })
     }
-    
+
     async fn health_check(&self) -> Result<HealthStatus, LlmError> {
         Ok(HealthStatus {
             healthy: false,
@@ -110,11 +110,11 @@ impl LlmProvider for CandleProvider {
             error: Some("Candle provider not yet implemented".to_string()),
         })
     }
-    
+
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             supports_streaming: false, // Will be true when implemented
-            supports_tools: false, // Will be true when implemented
+            supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
             max_tokens: None, // Varies by model
@@ -125,11 +125,11 @@ impl LlmProvider for CandleProvider {
             ],
         }
     }
-    
+
     fn provider_type(&self) -> ProviderType {
         ProviderType::Candle
     }
-    
+
     fn supported_models(&self) -> Vec<&'static str> {
         vec![
             "microsoft/DialoGPT-medium",
@@ -137,7 +137,7 @@ impl LlmProvider for CandleProvider {
             "distilbert-base-uncased",
         ]
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

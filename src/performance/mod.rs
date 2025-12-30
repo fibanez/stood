@@ -488,7 +488,7 @@ impl PerformanceOptimizer {
             let new_limit = ((current_permits as f64) * self.config.concurrency_factor) as usize;
 
             if new_limit > 0 && new_limit < current_permits {
-                warn!("Reducing concurrency from {} to {} due to high latency ({:?}) or errors ({:.2}%)", 
+                warn!("Reducing concurrency from {} to {} due to high latency ({:?}) or errors ({:.2}%)",
                       current_permits, new_limit, avg_latency, error_rate * 100.0);
 
                 // Note: Tokio semaphore doesn't support dynamic resizing,

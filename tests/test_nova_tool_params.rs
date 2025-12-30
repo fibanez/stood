@@ -1,10 +1,10 @@
 use std::env;
 use stood::{
     llm::{
-        traits::{LlmProvider, ChatConfig, Tool, ProviderType},
-        registry::{PROVIDER_REGISTRY, ProviderRegistry},
+        registry::{ProviderRegistry, PROVIDER_REGISTRY},
+        traits::{ChatConfig, LlmProvider, ProviderType, Tool},
     },
-    types::{Messages},
+    types::Messages,
 };
 
 #[tokio::test]
@@ -29,40 +29,47 @@ async fn test_nova_tool_parameter_interpretation() -> Result<(), Box<dyn std::er
         .get_provider(ProviderType::Bedrock)
         .await
         .map_err(|e| format!("Failed to get Bedrock provider: {}", e))?;
-    
+
     let provider = provider_arc.as_ref();
 
     // Create file_read tool definition
-    let tools = vec![
-        Tool {
-            name: "file_read".to_string(),
-            description: "Read the contents of a text file".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file to read"
-                    }
-                },
-                "required": ["path"]
-            }),
-        }
-    ];
+    let tools = vec![Tool {
+        name: "file_read".to_string(),
+        description: "Read the contents of a text file".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to read"
+                }
+            },
+            "required": ["path"]
+        }),
+    }];
 
     // Create messages with different prompting styles
     let test_cases = vec![
         // Test 1: Direct path in message
-        ("Direct path", "Please read the file at '/tmp/test.txt' and tell me what it contains."),
-        
+        (
+            "Direct path",
+            "Please read the file at '/tmp/test.txt' and tell me what it contains.",
+        ),
         // Test 2: Explicit tool instruction
-        ("Explicit tool", "Use the file_read tool with path '/tmp/test.txt' to read the file."),
-        
+        (
+            "Explicit tool",
+            "Use the file_read tool with path '/tmp/test.txt' to read the file.",
+        ),
         // Test 3: Path parameter format
-        ("Path parameter", "Use the file_read tool with parameter path='/tmp/test.txt'"),
-        
+        (
+            "Path parameter",
+            "Use the file_read tool with parameter path='/tmp/test.txt'",
+        ),
         // Test 4: JSON-style instruction
-        ("JSON style", "Use the file_read tool with {\"path\": \"/tmp/test.txt\"}"),
+        (
+            "JSON style",
+            "Use the file_read tool with {\"path\": \"/tmp/test.txt\"}",
+        ),
     ];
 
     // Test Nova
@@ -70,7 +77,7 @@ async fn test_nova_tool_parameter_interpretation() -> Result<(), Box<dyn std::er
     for (name, prompt) in &test_cases {
         println!("\nTest: {}", name);
         println!("Prompt: {}", prompt);
-        
+
         let mut messages = Messages::new();
         messages.add_user_message(prompt);
 
@@ -83,19 +90,20 @@ async fn test_nova_tool_parameter_interpretation() -> Result<(), Box<dyn std::er
             additional_params: std::collections::HashMap::new(),
         };
 
-        let response = provider.chat_with_tools(
-            "us.amazon.nova-lite-v1:0",
-            &messages,
-            &tools,
-            &config,
-        ).await?;
+        let response = provider
+            .chat_with_tools("us.amazon.nova-lite-v1:0", &messages, &tools, &config)
+            .await?;
 
-        println!("Response has tool calls: {}", !response.tool_calls.is_empty());
-        
+        println!(
+            "Response has tool calls: {}",
+            !response.tool_calls.is_empty()
+        );
+
         if !response.tool_calls.is_empty() {
             for (i, call) in response.tool_calls.iter().enumerate() {
-                println!("Tool call {}: {} with input: {}", 
-                    i + 1, 
+                println!(
+                    "Tool call {}: {} with input: {}",
+                    i + 1,
                     call.name,
                     serde_json::to_string_pretty(&call.input)?
                 );
@@ -109,7 +117,7 @@ async fn test_nova_tool_parameter_interpretation() -> Result<(), Box<dyn std::er
     println!("\n\n=== Testing Claude (for comparison) ===");
     let prompt = "Please read the file at '/tmp/test.txt' and tell me what it contains.";
     println!("Prompt: {}", prompt);
-    
+
     let mut messages = Messages::new();
     messages.add_user_message(prompt);
 
@@ -122,19 +130,25 @@ async fn test_nova_tool_parameter_interpretation() -> Result<(), Box<dyn std::er
         additional_params: std::collections::HashMap::new(),
     };
 
-    let response = provider.chat_with_tools(
-        "anthropic.claude-3-5-haiku-20241022-v1:0",
-        &messages,
-        &tools,
-        &config,
-    ).await?;
+    let response = provider
+        .chat_with_tools(
+            "anthropic.claude-3-5-haiku-20241022-v1:0",
+            &messages,
+            &tools,
+            &config,
+        )
+        .await?;
 
-    println!("Claude response has tool calls: {}", !response.tool_calls.is_empty());
-    
+    println!(
+        "Claude response has tool calls: {}",
+        !response.tool_calls.is_empty()
+    );
+
     if !response.tool_calls.is_empty() {
         for (i, call) in response.tool_calls.iter().enumerate() {
-            println!("Tool call {}: {} with input: {}", 
-                i + 1, 
+            println!(
+                "Tool call {}: {} with input: {}",
+                i + 1,
                 call.name,
                 serde_json::to_string_pretty(&call.input)?
             );

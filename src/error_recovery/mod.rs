@@ -110,9 +110,7 @@ impl ErrorClassifier {
             }
 
             // Enhanced ValidationError handling with message inspection
-            StoodError::ValidationError { message } => {
-                Self::classify_validation_error(message)
-            }
+            StoodError::ValidationError { message } => Self::classify_validation_error(message),
 
             // Non-retryable errors
             StoodError::InvalidInput { .. } => ErrorClassification::NonRetryable,
@@ -141,7 +139,7 @@ impl ErrorClassifier {
         // Bedrock-specific context overflow messages (from Python reference)
         const BEDROCK_CONTEXT_OVERFLOW_MESSAGES: &[&str] = &[
             "Input is too long for requested model",
-            "input length and `max_tokens` exceed context limit", 
+            "input length and `max_tokens` exceed context limit",
             "too many total text bytes",
             "input is too long",
             "input length exceeds context window",
@@ -167,15 +165,16 @@ pub struct RetryExecutor {
     config: RetryConfig,
 }
 
+impl Default for RetryExecutor {
+    fn default() -> Self {
+        Self::new(RetryConfig::default())
+    }
+}
+
 impl RetryExecutor {
     /// Create a new retry executor with the given configuration
     pub fn new(config: RetryConfig) -> Self {
         Self { config }
-    }
-
-    /// Create a retry executor with default configuration
-    pub fn default() -> Self {
-        Self::new(RetryConfig::default())
     }
 
     /// Execute an operation with retry logic
@@ -193,20 +192,31 @@ impl RetryExecutor {
 
             // Enhanced retry attempt logging
             if attempts_made == 1 {
-                debug!("🚀 Starting operation (attempt 1/{}, max duration: {:?})", 
-                    self.config.max_attempts, self.config.max_total_duration);
+                debug!(
+                    "🚀 Starting operation (attempt 1/{}, max duration: {:?})",
+                    self.config.max_attempts, self.config.max_total_duration
+                );
             } else {
-                info!("🔄 Retry attempt {}/{} starting...", attempts_made, self.config.max_attempts);
+                info!(
+                    "🔄 Retry attempt {}/{} starting...",
+                    attempts_made, self.config.max_attempts
+                );
             }
 
             match operation().await {
                 Ok(result) => {
                     let total_duration = start_time.elapsed();
                     if attempts_made == 1 {
-                        debug!("✅ Operation succeeded on first attempt in {:.2}s", total_duration.as_secs_f64());
+                        debug!(
+                            "✅ Operation succeeded on first attempt in {:.2}s",
+                            total_duration.as_secs_f64()
+                        );
                     } else {
-                        info!("✅ Operation succeeded after {} retries in {:.2}s total", 
-                            attempts_made, total_duration.as_secs_f64());
+                        info!(
+                            "✅ Operation succeeded after {} retries in {:.2}s total",
+                            attempts_made,
+                            total_duration.as_secs_f64()
+                        );
                     }
                     return RetryResult {
                         result: Ok(result),
@@ -236,7 +246,8 @@ impl RetryExecutor {
                         let total_duration = start_time.elapsed();
                         error!(
                             "💥 Maximum retry attempts ({}) reached after {:.2}s - giving up",
-                            self.config.max_attempts, total_duration.as_secs_f64()
+                            self.config.max_attempts,
+                            total_duration.as_secs_f64()
                         );
                         return RetryResult {
                             result: Err(error),
@@ -251,7 +262,7 @@ impl RetryExecutor {
                     let elapsed = start_time.elapsed();
                     if let Some(max_duration) = self.config.max_total_duration {
                         if elapsed >= max_duration {
-                            error!("⏰ Maximum retry duration ({:.1}s) reached after {} attempts - timing out", 
+                            error!("⏰ Maximum retry duration ({:.1}s) reached after {} attempts - timing out",
                                 max_duration.as_secs_f64(), attempts_made);
                             return RetryResult {
                                 result: Err(error),
@@ -270,15 +281,19 @@ impl RetryExecutor {
                     match ErrorClassifier::classify(&error) {
                         ErrorClassification::Retryable => {
                             if attempts_made == 1 {
-                                warn!("🔄 First attempt failed, retrying in {:.1}s... (attempt {}/{})", 
+                                warn!("🔄 First attempt failed, retrying in {:.1}s... (attempt {}/{})",
                                     delay.as_secs_f64(), attempts_made + 1, self.config.max_attempts);
                             } else {
-                                warn!("⏳ Retry {}/{} failed, trying again in {:.1}s... ({})", 
-                                    attempts_made, self.config.max_attempts, delay.as_secs_f64(), 
-                                    self.get_user_friendly_error_message(&error));
+                                warn!(
+                                    "⏳ Retry {}/{} failed, trying again in {:.1}s... ({})",
+                                    attempts_made,
+                                    self.config.max_attempts,
+                                    delay.as_secs_f64(),
+                                    self.get_user_friendly_error_message(&error)
+                                );
                             }
                             debug!("🔍 Retry details - Error: {}", error);
-                        },
+                        }
                         _ => {
                             debug!("❌ Operation failed with non-retryable error: {}", error);
                         }
@@ -482,7 +497,9 @@ impl ContextRecovery {
                             content_size + 50 // Approximate overhead
                         }
                         crate::types::ContentBlock::Thinking { content, .. } => content.len(),
-                        crate::types::ContentBlock::ReasoningContent { reasoning } => reasoning.text().len(),
+                        crate::types::ContentBlock::ReasoningContent { reasoning } => {
+                            reasoning.text().len()
+                        }
                     })
                     .sum::<usize>()
             })
@@ -493,56 +510,86 @@ impl ContextRecovery {
     /// Follows Python reference pattern: tool result truncation + oldest message removal
     pub fn handle_validation_context_overflow(messages: &mut Messages) -> Result<bool> {
         tracing::warn!("🔄 Handling ValidationException context overflow");
-        
+
         // Log conversation state before recovery
         let original_message_count = messages.messages.len();
-        let total_chars = messages.messages.iter()
-            .map(|m| m.content.iter()
-                .map(|c| match c {
-                    crate::types::ContentBlock::Text { text } => text.len(),
-                    crate::types::ContentBlock::ToolResult { content, .. } => content.to_display_string().len(),
-                    _ => 100, // Estimate for other content types
-                })
-                .sum::<usize>())
-            .sum::<usize>();
-        
-        tracing::debug!("📊 Pre-recovery state: {} messages, ~{} total characters", 
-            original_message_count, total_chars);
-        
-        // Step 1: Try tool result truncation first (matches Python priority)
-        if Self::truncate_enhanced_tool_results(messages)? {
-            let post_truncation_chars = messages.messages.iter()
-                .map(|m| m.content.iter()
+        let total_chars = messages
+            .messages
+            .iter()
+            .map(|m| {
+                m.content
+                    .iter()
                     .map(|c| match c {
                         crate::types::ContentBlock::Text { text } => text.len(),
-                        crate::types::ContentBlock::ToolResult { content, .. } => content.to_display_string().len(),
-                        _ => 100,
+                        crate::types::ContentBlock::ToolResult { content, .. } => {
+                            content.to_display_string().len()
+                        }
+                        _ => 100, // Estimate for other content types
                     })
-                    .sum::<usize>())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+
+        tracing::debug!(
+            "📊 Pre-recovery state: {} messages, ~{} total characters",
+            original_message_count,
+            total_chars
+        );
+
+        // Step 1: Try tool result truncation first (matches Python priority)
+        if Self::truncate_enhanced_tool_results(messages)? {
+            let post_truncation_chars = messages
+                .messages
+                .iter()
+                .map(|m| {
+                    m.content
+                        .iter()
+                        .map(|c| match c {
+                            crate::types::ContentBlock::Text { text } => text.len(),
+                            crate::types::ContentBlock::ToolResult { content, .. } => {
+                                content.to_display_string().len()
+                            }
+                            _ => 100,
+                        })
+                        .sum::<usize>()
+                })
                 .sum::<usize>();
-            
+
             tracing::info!("✂️ Truncated tool results to recover from ValidationException");
-            tracing::debug!("📉 Character reduction: {} → {} ({:.1}% reduction)", 
-                total_chars, post_truncation_chars, 
-                (total_chars as f64 - post_truncation_chars as f64) / total_chars as f64 * 100.0);
+            tracing::debug!(
+                "📉 Character reduction: {} → {} ({:.1}% reduction)",
+                total_chars,
+                post_truncation_chars,
+                (total_chars as f64 - post_truncation_chars as f64) / total_chars as f64 * 100.0
+            );
             return Ok(true);
         }
 
         // Step 2: Remove oldest messages (sliding window approach)
         let removed = Self::remove_oldest_messages(messages, 3); // Remove 3 oldest
         if removed > 0 {
-            let post_removal_chars = messages.messages.iter()
-                .map(|m| m.content.iter()
-                    .map(|c| match c {
-                        crate::types::ContentBlock::Text { text } => text.len(),
-                        crate::types::ContentBlock::ToolResult { content, .. } => content.to_display_string().len(),
-                        _ => 100,
-                    })
-                    .sum::<usize>())
+            let post_removal_chars = messages
+                .messages
+                .iter()
+                .map(|m| {
+                    m.content
+                        .iter()
+                        .map(|c| match c {
+                            crate::types::ContentBlock::Text { text } => text.len(),
+                            crate::types::ContentBlock::ToolResult { content, .. } => {
+                                content.to_display_string().len()
+                            }
+                            _ => 100,
+                        })
+                        .sum::<usize>()
+                })
                 .sum::<usize>();
-            
-            tracing::info!("🗑️ Removed {} oldest messages to recover from ValidationException", removed);
-            tracing::debug!("📉 Message reduction: {} → {} messages, {} → {} characters ({:.1}% char reduction)", 
+
+            tracing::info!(
+                "🗑️ Removed {} oldest messages to recover from ValidationException",
+                removed
+            );
+            tracing::debug!("📉 Message reduction: {} → {} messages, {} → {} characters ({:.1}% char reduction)",
                 original_message_count, messages.messages.len(),
                 total_chars, post_removal_chars,
                 (total_chars as f64 - post_removal_chars as f64) / total_chars as f64 * 100.0);
@@ -550,7 +597,9 @@ impl ContextRecovery {
         }
 
         tracing::error!("❌ Unable to recover from ValidationException context overflow");
-        tracing::debug!("💔 Recovery failed - no tool results to truncate and no messages to remove");
+        tracing::debug!(
+            "💔 Recovery failed - no tool results to truncate and no messages to remove"
+        );
         Ok(false)
     }
 
@@ -558,27 +607,31 @@ impl ContextRecovery {
     /// Matches Python reference: find_last_message_with_tool_results + truncate_tool_results
     fn truncate_enhanced_tool_results(messages: &mut Messages) -> Result<bool> {
         // Find the last message with tool results
-        let last_tool_result_index = messages.messages
-            .iter()
-            .rposition(|msg| {
-                msg.content.iter().any(|content| {
-                    matches!(content, crate::types::ContentBlock::ToolResult { .. })
-                })
-            });
+        let last_tool_result_index = messages.messages.iter().rposition(|msg| {
+            msg.content
+                .iter()
+                .any(|content| matches!(content, crate::types::ContentBlock::ToolResult { .. }))
+        });
 
         if let Some(index) = last_tool_result_index {
             let message = &mut messages.messages[index];
             let original_count = message.content.len();
-            
+
             // Truncate tool result content to first 1000 characters
             for content in &mut message.content {
-                if let crate::types::ContentBlock::ToolResult { content: tool_content, .. } = content {
+                if let crate::types::ContentBlock::ToolResult {
+                    content: tool_content,
+                    ..
+                } = content
+                {
                     *tool_content = Self::truncate_tool_result_content(tool_content, 1000);
                 }
             }
 
-            debug!("Truncated tool results in message {} (had {} content blocks)", 
-                           index, original_count);
+            debug!(
+                "Truncated tool results in message {} (had {} content blocks)",
+                index, original_count
+            );
             return Ok(true);
         }
 
@@ -587,13 +640,16 @@ impl ContextRecovery {
 
     /// Truncate tool result content while preserving structure
     fn truncate_tool_result_content(
-        content: &crate::types::ToolResultContent, 
-        max_chars: usize
+        content: &crate::types::ToolResultContent,
+        max_chars: usize,
     ) -> crate::types::ToolResultContent {
         match content {
             crate::types::ToolResultContent::Text { text } => {
                 if text.len() > max_chars {
-                    crate::types::ToolResultContent::text(format!("{}...[truncated for context window]", &text[..max_chars]))
+                    crate::types::ToolResultContent::text(format!(
+                        "{}...[truncated for context window]",
+                        &text[..max_chars]
+                    ))
                 } else {
                     content.clone()
                 }
@@ -601,27 +657,38 @@ impl ContextRecovery {
             crate::types::ToolResultContent::Json { data } => {
                 let text = data.to_string();
                 if text.len() > max_chars {
-                    crate::types::ToolResultContent::text(format!("{}...[truncated JSON for context window]", &text[..max_chars]))
+                    crate::types::ToolResultContent::text(format!(
+                        "{}...[truncated JSON for context window]",
+                        &text[..max_chars]
+                    ))
                 } else {
                     content.clone()
                 }
             }
             crate::types::ToolResultContent::Binary { data, mime_type } => {
                 if data.len() > max_chars {
-                    crate::types::ToolResultContent::text(format!("[Binary data ({}) truncated for context window: {} bytes]", mime_type, data.len()))
+                    crate::types::ToolResultContent::text(format!(
+                        "[Binary data ({}) truncated for context window: {} bytes]",
+                        mime_type,
+                        data.len()
+                    ))
                 } else {
                     content.clone()
                 }
             }
             crate::types::ToolResultContent::Multiple { blocks } => {
-                let truncated_blocks: Vec<_> = blocks.iter()
+                let truncated_blocks: Vec<_> = blocks
+                    .iter()
                     .take(3) // Keep only first 3 blocks
                     .map(|block| Self::truncate_tool_result_content(block, max_chars / 3))
                     .collect();
-                
+
                 if blocks.len() > 3 {
                     let mut final_blocks = truncated_blocks;
-                    final_blocks.push(crate::types::ToolResultContent::text(format!("...[{} more blocks truncated for context window]", blocks.len() - 3)));
+                    final_blocks.push(crate::types::ToolResultContent::text(format!(
+                        "...[{} more blocks truncated for context window]",
+                        blocks.len() - 3
+                    )));
                     crate::types::ToolResultContent::multiple(final_blocks)
                 } else {
                     crate::types::ToolResultContent::multiple(truncated_blocks)
@@ -653,6 +720,12 @@ enum CircuitBreakerState {
     HalfOpen, // Testing if service recovered
 }
 
+impl Default for CircuitBreaker {
+    fn default() -> Self {
+        Self::new(5, Duration::from_secs(60)) // 5 failures, 1 minute recovery
+    }
+}
+
 impl CircuitBreaker {
     /// Create a new circuit breaker
     pub fn new(failure_threshold: u32, recovery_timeout: Duration) -> Self {
@@ -663,11 +736,6 @@ impl CircuitBreaker {
             failure_count: 0,
             opened_at: None,
         }
-    }
-
-    /// Create a circuit breaker with default settings
-    pub fn default() -> Self {
-        Self::new(5, Duration::from_secs(60)) // 5 failures, 1 minute recovery
     }
 
     /// Check if a request should be allowed through
@@ -824,36 +892,68 @@ mod tests {
     fn test_validation_exception_context_overflow_classification() {
         // Test Bedrock context overflow messages (should be retryable with context recovery)
         let error1 = StoodError::validation_error("Input is too long for requested model");
-        assert_eq!(ErrorClassifier::classify(&error1), ErrorClassification::ContextOverflow);
+        assert_eq!(
+            ErrorClassifier::classify(&error1),
+            ErrorClassification::ContextOverflow
+        );
 
-        let error2 = StoodError::validation_error("input length and `max_tokens` exceed context limit");
-        assert_eq!(ErrorClassifier::classify(&error2), ErrorClassification::ContextOverflow);
+        let error2 =
+            StoodError::validation_error("input length and `max_tokens` exceed context limit");
+        assert_eq!(
+            ErrorClassifier::classify(&error2),
+            ErrorClassification::ContextOverflow
+        );
 
         let error3 = StoodError::validation_error("too many total text bytes");
-        assert_eq!(ErrorClassifier::classify(&error3), ErrorClassification::ContextOverflow);
+        assert_eq!(
+            ErrorClassifier::classify(&error3),
+            ErrorClassification::ContextOverflow
+        );
 
         let error4 = StoodError::validation_error("input is too long");
-        assert_eq!(ErrorClassifier::classify(&error4), ErrorClassification::ContextOverflow);
+        assert_eq!(
+            ErrorClassifier::classify(&error4),
+            ErrorClassification::ContextOverflow
+        );
 
         let error5 = StoodError::validation_error("input length exceeds context window");
-        assert_eq!(ErrorClassifier::classify(&error5), ErrorClassification::ContextOverflow);
+        assert_eq!(
+            ErrorClassifier::classify(&error5),
+            ErrorClassification::ContextOverflow
+        );
 
-        let error6 = StoodError::validation_error("input and output tokens exceed your context limit");
-        assert_eq!(ErrorClassifier::classify(&error6), ErrorClassification::ContextOverflow);
+        let error6 =
+            StoodError::validation_error("input and output tokens exceed your context limit");
+        assert_eq!(
+            ErrorClassifier::classify(&error6),
+            ErrorClassification::ContextOverflow
+        );
 
         // Test case insensitivity
         let error7 = StoodError::validation_error("INPUT IS TOO LONG FOR REQUESTED MODEL");
-        assert_eq!(ErrorClassifier::classify(&error7), ErrorClassification::ContextOverflow);
+        assert_eq!(
+            ErrorClassifier::classify(&error7),
+            ErrorClassification::ContextOverflow
+        );
 
         // Test non-context validation errors (should be non-retryable)
         let error8 = StoodError::validation_error("Invalid parameter value");
-        assert_eq!(ErrorClassifier::classify(&error8), ErrorClassification::NonRetryable);
+        assert_eq!(
+            ErrorClassifier::classify(&error8),
+            ErrorClassification::NonRetryable
+        );
 
         let error9 = StoodError::validation_error("Malformed request");
-        assert_eq!(ErrorClassifier::classify(&error9), ErrorClassification::NonRetryable);
+        assert_eq!(
+            ErrorClassifier::classify(&error9),
+            ErrorClassification::NonRetryable
+        );
 
         let error10 = StoodError::validation_error("Missing required field");
-        assert_eq!(ErrorClassifier::classify(&error10), ErrorClassification::NonRetryable);
+        assert_eq!(
+            ErrorClassifier::classify(&error10),
+            ErrorClassification::NonRetryable
+        );
     }
 
     #[test]
@@ -1181,15 +1281,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_context_recovery() {
-        use crate::types::{Messages, Message, MessageRole, ContentBlock, ToolResultContent};
+        use crate::types::{ContentBlock, Message, MessageRole, Messages, ToolResultContent};
 
         // Create messages with tool results that would cause context overflow
         let mut messages = Messages::new();
-        
+
         // Add a user message
         let user_message = Message::new(
             MessageRole::User,
-            vec![ContentBlock::text("Calculate something for me")]
+            vec![ContentBlock::text("Calculate something for me")],
         );
         messages.push(user_message);
 
@@ -1199,8 +1299,8 @@ mod tests {
             vec![ContentBlock::tool_use(
                 "tool_123".to_string(),
                 "calculator".to_string(),
-                serde_json::json!({"expression": "2 + 2"})
-            )]
+                serde_json::json!({"expression": "2 + 2"}),
+            )],
         );
         messages.push(assistant_message);
 
@@ -1210,8 +1310,8 @@ mod tests {
             MessageRole::User,
             vec![ContentBlock::tool_result_success(
                 "tool_123".to_string(),
-                ToolResultContent::text(large_result)
-            )]
+                ToolResultContent::text(large_result),
+            )],
         );
         messages.push(tool_result_message);
 
@@ -1239,15 +1339,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_validation_context_recovery_no_tool_results() {
-        use crate::types::{Messages, Message, MessageRole, ContentBlock};
+        use crate::types::{ContentBlock, Message, MessageRole, Messages};
 
         // Create messages without tool results
         let mut messages = Messages::new();
-        
+
         for i in 0..5 {
             let message = Message::new(
                 MessageRole::User,
-                vec![ContentBlock::text(format!("Message {} with lots of text", i))]
+                vec![ContentBlock::text(format!(
+                    "Message {} with lots of text",
+                    i
+                ))],
             );
             messages.push(message);
         }
@@ -1262,7 +1365,7 @@ mod tests {
 
         // Should have removed 3 oldest messages
         assert_eq!(messages.messages.len(), 2);
-        
+
         // Remaining messages should be the newest ones
         if let ContentBlock::Text { text } = &messages.messages[0].content[0] {
             assert!(text.contains("Message 3"));

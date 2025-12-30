@@ -112,10 +112,10 @@ Parallel tool execution patterns demonstrating max_parallel_tools configuration.
 cargo run --example 017_parallel_execution
 ```
 
-### 018_custom_evaluation ✅
-Custom evaluation strategy with domain-specific criteria (cybersecurity example).
+### 018_task_evaluation ✅
+Task evaluation strategy for autonomous multi-cycle execution.
 ```bash
-cargo run --example 018_custom_evaluation
+cargo run --example 018_task_evaluation
 ```
 
 ### 019_agent_based_evaluation ✅
@@ -124,53 +124,44 @@ Agent-based evaluation using a separate evaluator agent for quality assessment.
 cargo run --example 019_agent_based_evaluation
 ```
 
-### 020_self_reflection ✅
-Self-reflection evaluation where agents assess their own work quality.
-```bash
-cargo run --example 020_self_reflection
-```
-
-### 021_self_reflection_optimized ✅
-Optimized self-reflection evaluation using intent-driven prompts and SMART framework.
-```bash
-cargo run --example 021_self_reflection_optimized
-```
-
-### 022_chain_of_thought ✅
-Chain-of-thought evaluation with structured step-by-step reasoning.
-```bash
-cargo run --example 022_chain_of_thought
-```
-
-### 023_multi_perspective ✅
+### 020_multi_perspective ✅
 Multi-perspective evaluation with weighted scoring from multiple viewpoints.
 ```bash
-cargo run --example 023_multi_perspective
+cargo run --example 020_multi_perspective
 ```
 
-### 024_agentic_chat ✅
+### 021_agentic_chat ✅
 Full interactive chat application with LLM-driven tool selection.
 ```bash
-cargo run --example 024_agentic_chat
+cargo run --example 021_agentic_chat
 ```
 
-## Expert Concepts (025-026)
+## Specialized Modules (022-024)
 
-### 025_aws_doc_mcp ✅
+### 022_aws_doc_mcp ✅
 AWS documentation access via MCP.
 ```bash
-cd examples/025_aws_doc_mcp && cargo run
+cd examples/022_aws_doc_mcp && cargo run
 ```
 
-### 026_telemetry ✅
-Advanced OpenTelemetry integration setup.
+### 023_telemetry ⚠️
+Telemetry examples (some require full OTEL implementation).
 ```bash
-cd examples/026_telemetry && cargo run
+cd examples/023_telemetry
+cargo run --example simple_telemetry_test
+cargo run --example smart_telemetry_test
+cargo run --example metrics_test
+```
+
+### 024_enterprise_prompt_builder ✅
+Enterprise prompt builder patterns.
+```bash
+cargo run --example 024_enterprise_prompt_builder
 ```
 
 ## Complexity Overview
 
 - **Basic (001-007)**: Tool creation, simple streaming, basic agent patterns
 - **Intermediate (008-015)**: Callbacks, MCP integration, logging, authorization
-- **Advanced (016-024)**: Evaluation strategies, performance optimization, context management
-- **Expert (025-030)**: Complex integrations, parallel execution, comprehensive systems
+- **Advanced (016-021)**: Evaluation strategies, performance optimization, context management
+- **Specialized (022-024)**: MCP integrations, telemetry, enterprise patterns

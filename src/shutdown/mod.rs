@@ -90,6 +90,12 @@ pub trait ShutdownHandler: Send + Sync {
     }
 }
 
+impl Default for ShutdownManager {
+    fn default() -> Self {
+        Self::new(ShutdownConfig::default())
+    }
+}
+
 impl ShutdownManager {
     /// Create a new shutdown manager
     pub fn new(config: ShutdownConfig) -> Self {
@@ -102,11 +108,6 @@ impl ShutdownManager {
             shutdown_complete: Arc::new(Notify::new()),
             cleanup_handlers: Vec::new(),
         }
-    }
-
-    /// Create a default shutdown manager
-    pub fn default() -> Self {
-        Self::new(ShutdownConfig::default())
     }
 
     /// Get a shutdown receiver for listening to shutdown signals
@@ -299,7 +300,6 @@ impl ShutdownManager {
     async fn flush_telemetry(&self) {
         debug!("Flushing telemetry data");
 
-        
         {
             use opentelemetry::global;
             global::shutdown_tracer_provider();

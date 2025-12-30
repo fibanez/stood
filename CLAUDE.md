@@ -7,11 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is the Stood agent library - a Rust implementation of an AI agent framework with multi providers support. The project consists of:
 
 1. **Rust Library** (`src/`) - The main Stood agent library implementation
-1. **Provider Integration** (`src/tests/provider_integration`) - Test Suite to verify LLM provider functionality - use it to verify new provider functionality
-1. **Documenation** (`src/docs`) - Project documetnation - developer driven
-1. **Examples** (`src/examles`) - Fully functional examples to be used by developers and code assistant to quickly understand library functionality
-1. **rewls** (`src/rewls`) - project rules for maintaining architectural and coding practices - executed via an MCP to verify rule violations before committing to git
-1. **Stood Macros** (`src/stood-macros`) - macros that are part of stood, but have to be maintained in their folder
+1. **Provider Integration** (`tests/provider_integration/`) - Test suite to verify LLM provider functionality
+1. **Documentation** (`docs/`) - Project documentation
+1. **Examples** (`examples/`) - Fully functional examples for developers and code assistants
+1. **Stood Macros** (`stood-macros/`) - Procedural macros that are part of Stood
 
 ## Commands
 
@@ -54,20 +53,79 @@ Integration tests run automatically with `cargo test` and make real provider API
 ## Architecture
 
 ### High-Level Design
-The Stood library is designed with three core components:
+The Stood library is designed with these core components:
 
-1. **Provider Client** - Direct provider integration for Claude/Nova and eventually many other models
+1. **Provider Client** - Direct provider integration for Claude/Nova and other models
 2. **Tools Component** - Rust function integration with compile-time validation
-3. **Agent Component** - Orchestrates the agentic loop between Bedrock and Tools
-4. **MCP Component** - MCP support
-5. **Telemetry Component** - Telemetr support using OpenTelemetry
+3. **Agent Component** - Orchestrates the agentic loop between providers and tools
+4. **MCP Component** - Model Context Protocol support
+5. **Telemetry Component** - CloudWatch Gen AI Observability integration
 
 ### Key Design Principles
-- **Library-First**: Designed to be embedded in other Rust applications  
+- **Library-First**: Designed to be embedded in other Rust applications
 - **Performance Optimized**: Leverages Rust's zero-cost abstractions
 - **Type Safety**: Strong typing throughout to prevent runtime errors
-- **Model Compatibility**: Defaults to Claude Haiku 3 for broad AWS account compatibility
+- **Model Compatibility**: Defaults to Claude Haiku 4.5 for production use
 
+## Telemetry
+
+### CloudWatch Gen AI Observability
+
+Stood integrates with AWS CloudWatch Gen AI Observability for production monitoring.
+
+#### Configuration
+
+```rust
+use stood::agent::Agent;
+use stood::telemetry::TelemetryConfig;
+
+// Disabled (default)
+let agent = Agent::builder()
+    .model(Bedrock::ClaudeHaiku45)
+    .build()
+    .await?;
+
+// Enabled with CloudWatch
+let agent = Agent::builder()
+    .model(Bedrock::ClaudeHaiku45)
+    .with_telemetry(TelemetryConfig::cloudwatch("us-east-1"))
+    .build()
+    .await?;
+
+// From environment
+let agent = Agent::builder()
+    .model(Bedrock::ClaudeHaiku45)
+    .with_telemetry_from_env()
+    .build()
+    .await?;
+```
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STOOD_CLOUDWATCH_ENABLED` | `false` | Enable CloudWatch export |
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `OTEL_SERVICE_NAME` | `stood-agent` | Service name in traces |
+
+#### AWS Prerequisites
+
+1. Configure AWS credentials (environment, profile, or IAM role)
+2. Enable Transaction Search in CloudWatch Console
+3. Set trace destination: `aws xray update-trace-segment-destination --destination CloudWatchLogs`
+4. Attach `AWSXrayWriteOnlyPolicy` or equivalent IAM policy
+
+#### GenAI Semantic Conventions
+
+Stood follows OpenTelemetry GenAI semantic conventions:
+
+| Span Name | Operation | Key Attributes |
+|-----------|-----------|----------------|
+| `invoke_agent {name}` | Agent invocation | `gen_ai.agent.name`, `gen_ai.usage.*` |
+| `chat {model}` | Model call | `gen_ai.request.model`, `gen_ai.provider.name` |
+| `execute_tool {name}` | Tool execution | `gen_ai.tool.name`, `gen_ai.tool.type` |
 
 ### Live Examples
-Review examples for working versions of the API 
+Review examples for working versions of the API:
+- `examples/025_cloudwatch_observability.rs` - Full CloudWatch integration
+- `examples/023_telemetry/` - Telemetry configuration tests 

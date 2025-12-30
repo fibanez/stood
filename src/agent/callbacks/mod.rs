@@ -4,20 +4,23 @@
 //! receive real-time updates during agent execution, including content streaming,
 //! tool usage, and performance metrics.
 
-pub mod traits;
-pub mod events;
-pub mod handlers;
 pub mod config;
 pub mod error;
+pub mod events;
+pub mod handlers;
+pub mod traits;
 
 #[cfg(feature = "benchmarks")]
 pub mod benchmarks;
 
 pub mod batching;
 
-pub use traits::{CallbackHandler, SyncCallbackHandler};
-pub use events::{CallbackEvent, ToolEvent, TokenUsage};
-pub use handlers::{NullCallbackHandler, PrintingCallbackHandler, CompositeCallbackHandler, PerformanceCallbackHandler};
+pub use batching::{BatchConfig, BatchingCallbackHandler, EventBatch};
 pub use config::{CallbackHandlerConfig, PrintingConfig};
 pub use error::CallbackError;
-pub use batching::{BatchingCallbackHandler, BatchConfig, EventBatch};
+pub use events::{CallbackEvent, TokenUsage, ToolEvent};
+pub use handlers::{
+    CompositeCallbackHandler, NullCallbackHandler, PerformanceCallbackHandler,
+    PrintingCallbackHandler,
+};
+pub use traits::{CallbackHandler, SyncCallbackHandler};

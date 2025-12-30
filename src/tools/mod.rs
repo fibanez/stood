@@ -24,7 +24,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut registry = ToolRegistry::new();
 //!     registry.register_tool(Box::new(get_weather)).await?;
-//!     
+//!
 //!     // Tool is now available for agent execution
 //!     Ok(())
 //! }
@@ -77,6 +77,7 @@
 pub mod builtin;
 pub mod executor;
 pub mod mcp_adapter;
+pub mod middleware;
 
 #[cfg(test)]
 mod mcp_e2e_tests;
@@ -95,14 +96,17 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub use executor::{ExecutionMetrics, ExecutorConfig, ToolExecutor};
+pub use middleware::{
+    AfterToolAction, MiddlewareStack, ToolContext, ToolMiddleware, ToolMiddlewareAction,
+};
 
 // Note: Unified tool system types are defined below and exported automatically
 
 /// Request from any LLM provider to execute a specific tool.
 ///
 /// This struct represents a tool call request from any supported LLM provider
-/// (Bedrock, LM Studio, Anthropic, OpenAI), containing all information needed 
-/// to execute the tool and return results. Each tool use has a unique ID for 
+/// (Bedrock, LM Studio, Anthropic, OpenAI), containing all information needed
+/// to execute the tool and return results. Each tool use has a unique ID for
 /// tracking and correlation with results.
 ///
 /// # Examples
@@ -129,7 +133,6 @@ pub struct ToolUse {
     /// Input parameters for the tool
     pub input: serde_json::Value,
 }
-
 
 /// Primary trait for implementing tools in the unified tool system.
 ///
@@ -159,11 +162,11 @@ pub struct ToolUse {
 /// #[async_trait]
 /// impl Tool for Calculator {
 ///     fn name(&self) -> &str { "calculate" }
-///     
+///
 ///     fn description(&self) -> &str {
 ///         "Perform mathematical calculations with basic operators"
 ///     }
-///     
+///
 ///     fn parameters_schema(&self) -> Value {
 ///         json!({
 ///             "type": "object",
@@ -176,16 +179,16 @@ pub struct ToolUse {
 ///             "required": ["expression"]
 ///         })
 ///     }
-///     
+///
 ///     async fn execute(&self, parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
 ///         let params = parameters.ok_or_else(|| ToolError::InvalidParameters {
 ///             message: "Parameters required".to_string()
 ///         })?;
-///         
+///
 ///         let expression = params["expression"].as_str().ok_or_else(|| ToolError::InvalidParameters {
 ///             message: "Expression must be a string".to_string()
 ///         })?;
-///         
+///
 ///         // Your calculation logic here
 ///         let result = evaluate_expression(expression)?;
 ///         Ok(ToolResult::success(json!({ "result": result })))
@@ -215,25 +218,29 @@ pub struct ToolUse {
 pub trait Tool: Send + Sync + std::fmt::Debug {
     /// Get the tool name
     fn name(&self) -> &str;
-    
+
     /// Get the tool description
     fn description(&self) -> &str;
-    
+
     /// Get the JSON schema for parameters
     fn parameters_schema(&self) -> Value;
-    
+
     /// Execute the tool with the given parameters and optional agent context
     async fn execute(
-        &self, 
+        &self,
         parameters: Option<Value>,
         agent_context: Option<&crate::agent::AgentContext>,
     ) -> Result<ToolResult, ToolError>;
-    
+
     /// Check if the tool is available for use
-    fn is_available(&self) -> bool { true }
-    
+    fn is_available(&self) -> bool {
+        true
+    }
+
     /// Get the source of this tool
-    fn source(&self) -> ToolSource { ToolSource::Custom }
+    fn source(&self) -> ToolSource {
+        ToolSource::Custom
+    }
 }
 
 /// Source type for tools in the unified system
@@ -267,7 +274,7 @@ impl ToolResult {
             error: None,
         }
     }
-    
+
     /// Create an error tool result
     pub fn error<S: Into<String>>(message: S) -> Self {
         Self {
@@ -284,30 +291,29 @@ pub enum ToolError {
     /// Invalid parameters provided to the tool
     #[error("Invalid parameters: {message}")]
     InvalidParameters { message: String },
-    
+
     /// Tool was not found in the registry
     #[error("Tool not found: {name}")]
     ToolNotFound { name: String },
-    
+
     /// Duplicate tool name during registration
     #[error("Duplicate tool name: {name}")]
     DuplicateTool { name: String },
-    
+
     /// Tool execution failed
     #[error("Tool execution failed: {message}")]
     ExecutionFailed { message: String },
-    
+
     /// Tool is not available
     #[error("Tool not available: {name}")]
     ToolNotAvailable { name: String },
 }
 
-
 /// Thread-safe registry for managing tool collections across multiple agents and providers.
 ///
 /// The `ToolRegistry` serves as the central hub for tool management, providing
 /// registration, lookup, execution, and schema generation capabilities. It supports
-/// concurrent access from multiple agents using different LLM providers while 
+/// concurrent access from multiple agents using different LLM providers while
 /// maintaining consistency and performance.
 ///
 /// # Architecture
@@ -331,25 +337,25 @@ pub enum ToolError {
 /// Create and populate a tool registry:
 /// ```no_run
 /// use stood::tools::{ToolRegistry, Tool};
-/// 
+///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let registry = ToolRegistry::new();
-///     
+///
 ///     // Register multiple tools
 ///     registry.register_tool(Box::new(WeatherTool)).await?;
 ///     registry.register_tool(Box::new(CalculatorTool)).await?;
-///     
+///
 ///     // Get schemas for multi-provider LLM integration
 ///     let schemas = registry.get_tool_schemas().await;
 ///     println!("Available tools: {}", schemas.len());
-///     
+///
 ///     // Execute a tool
 ///     let result = registry.execute_tool(
 ///         "weather",
 ///         Some(serde_json::json!({ "location": "Boston" }))
 ///     ).await?;
-///     
+///
 ///     Ok(())
 /// }
 /// # #[derive(Debug)] struct WeatherTool;
@@ -378,11 +384,11 @@ pub enum ToolError {
 /// #[tokio::main]
 /// async fn main() {
 ///     let registry = Arc::new(ToolRegistry::new());
-///     
+///
 ///     // Share registry across multiple agents (any provider)
 ///     let bedrock_agent_registry = Arc::clone(&registry);
 ///     let lmstudio_agent_registry = Arc::clone(&registry);
-///     
+///
 ///     // Both agents can use tools concurrently
 ///     tokio::join!(
 ///         async move {
@@ -390,7 +396,7 @@ pub enum ToolError {
 ///             let tools = bedrock_agent_registry.tool_names().await;
 ///         },
 ///         async move {
-///             // LM Studio agent operations  
+///             // LM Studio agent operations
 ///             let has_weather = lmstudio_agent_registry.has_tool("weather").await;
 ///         }
 ///     );
@@ -414,6 +420,7 @@ pub enum ToolError {
 #[derive(Clone)]
 pub struct ToolRegistry {
     tools: Arc<RwLock<HashMap<String, Arc<dyn Tool>>>>,
+    middleware: Arc<RwLock<MiddlewareStack>>,
 }
 
 impl ToolRegistry {
@@ -421,9 +428,46 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: Arc::new(RwLock::new(HashMap::new())),
+            middleware: Arc::new(RwLock::new(MiddlewareStack::new())),
         }
     }
-    
+
+    /// Add middleware to the tool registry.
+    ///
+    /// Middleware is executed in registration order for `before_tool`
+    /// and reverse order for `after_tool`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use stood::tools::{ToolRegistry, ToolMiddleware, ToolMiddlewareAction, AfterToolAction, ToolContext, ToolResult};
+    /// # use async_trait::async_trait;
+    /// # use serde_json::Value;
+    /// # use std::sync::Arc;
+    /// # #[derive(Debug)]
+    /// # struct LoggingMiddleware;
+    /// # #[async_trait]
+    /// # impl ToolMiddleware for LoggingMiddleware {
+    /// #     async fn before_tool(&self, _: &str, _: &Value, _: &ToolContext) -> ToolMiddlewareAction { ToolMiddlewareAction::Continue }
+    /// #     async fn after_tool(&self, _: &str, _: &ToolResult, _: &ToolContext) -> AfterToolAction { AfterToolAction::PassThrough }
+    /// # }
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let registry = ToolRegistry::new();
+    ///     registry.add_middleware(Arc::new(LoggingMiddleware)).await;
+    /// }
+    /// ```
+    pub async fn add_middleware(&self, middleware: Arc<dyn ToolMiddleware>) {
+        let mut stack = self.middleware.write().await;
+        stack.add(middleware);
+    }
+
+    /// Check if middleware is configured
+    pub async fn has_middleware(&self) -> bool {
+        let stack = self.middleware.read().await;
+        !stack.is_empty()
+    }
+
     /// Register a new tool in the registry for use by agents.
     ///
     /// Adds a tool to the registry, making it available for execution by any agent
@@ -454,10 +498,10 @@ impl ToolRegistry {
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     let registry = ToolRegistry::new();
-    ///     
+    ///
     ///     // Register your custom tool
     ///     registry.register_tool(Box::new(MyTool)).await?;
-    ///     
+    ///
     ///     // Verify registration
     ///     assert!(registry.has_tool("my_tool").await);
     ///     Ok(())
@@ -470,7 +514,7 @@ impl ToolRegistry {
     /// # async fn example(registry: ToolRegistry, tool1: Box<dyn stood::tools::Tool>, tool2: Box<dyn stood::tools::Tool>) {
     /// // First registration succeeds
     /// registry.register_tool(tool1).await.unwrap();
-    /// 
+    ///
     /// // Second registration with same name fails
     /// match registry.register_tool(tool2).await {
     ///     Err(ToolError::DuplicateTool { name }) => {
@@ -488,44 +532,48 @@ impl ToolRegistry {
     pub async fn register_tool(&self, tool: Box<dyn Tool>) -> Result<(), ToolError> {
         let tool_name = tool.name().to_string();
         let tool_arc = Arc::from(tool);
-        
+
         let mut tools = self.tools.write().await;
-        
+
         // Check for duplicate names
         if tools.contains_key(&tool_name) {
             return Err(ToolError::DuplicateTool { name: tool_name });
         }
-        
+
         tools.insert(tool_name.clone(), tool_arc);
-        
+
         tracing::info!("Registered unified tool: {}", tool_name);
         Ok(())
     }
-    
+
     /// Get tool schemas for LLM consumption
     pub async fn get_tool_schemas(&self) -> Vec<Value> {
         let tools = self.tools.read().await;
-        tools.values().map(|tool| {
-            serde_json::json!({
-                "name": tool.name(),
-                "description": tool.description(),
-                "input_schema": tool.parameters_schema()
+        tools
+            .values()
+            .map(|tool| {
+                serde_json::json!({
+                    "name": tool.name(),
+                    "description": tool.description(),
+                    "input_schema": tool.parameters_schema()
+                })
             })
-        }).collect()
+            .collect()
     }
-    
+
     /// Convert tool registry to LLM Tool format for provider consumption
     pub async fn to_llm_tools(&self) -> Vec<crate::llm::traits::Tool> {
         let tools = self.tools.read().await;
-        tools.values().map(|tool| {
-            crate::llm::traits::Tool {
+        tools
+            .values()
+            .map(|tool| crate::llm::traits::Tool {
                 name: tool.name().to_string(),
                 description: tool.description().to_string(),
                 input_schema: tool.parameters_schema(),
-            }
-        }).collect()
+            })
+            .collect()
     }
-    
+
     /// Execute a registered tool with the provided parameters.
     ///
     /// Looks up and executes the specified tool, handling parameter validation
@@ -551,9 +599,10 @@ impl ToolRegistry {
     /// # async fn example(registry: ToolRegistry) -> Result<(), Box<dyn std::error::Error>> {
     /// let result = registry.execute_tool(
     ///     "get_weather",
-    ///     Some(json!({ "location": "New York", "units": "celsius" }))
+    ///     Some(json!({ "location": "New York", "units": "celsius" })),
+    ///     None
     /// ).await?;
-    /// 
+    ///
     /// if result.success {
     ///     println!("Weather data: {}", result.content);
     /// } else {
@@ -568,7 +617,7 @@ impl ToolRegistry {
     /// # use stood::tools::{ToolRegistry, ToolError};
     /// # use serde_json::json;
     /// # async fn example(registry: ToolRegistry) {
-    /// match registry.execute_tool("unknown_tool", None).await {
+    /// match registry.execute_tool("unknown_tool", None, None).await {
     ///     Ok(result) => println!("Success: {}", result.content),
     ///     Err(ToolError::ToolNotFound { name }) => {
     ///         println!("Tool '{}' not found in registry", name);
@@ -596,29 +645,84 @@ impl ToolRegistry {
     /// - Concurrent executions are supported and encouraged
     /// - No internal caching of results (implement in tools if needed)
     pub async fn execute_tool(
-        &self, 
-        name: &str, 
+        &self,
+        name: &str,
         parameters: Option<Value>,
         agent_context: Option<&crate::agent::AgentContext>,
     ) -> Result<ToolResult, ToolError> {
         let tools = self.tools.read().await;
-        
-        let tool = tools.get(name)
-            .ok_or_else(|| ToolError::ToolNotFound { name: name.to_string() })?;
-            
+
+        let tool = tools.get(name).ok_or_else(|| ToolError::ToolNotFound {
+            name: name.to_string(),
+        })?;
+
         if !tool.is_available() {
-            return Err(ToolError::ToolNotAvailable { name: name.to_string() });
+            return Err(ToolError::ToolNotAvailable {
+                name: name.to_string(),
+            });
         }
-        
-        tool.execute(parameters, agent_context).await
+
+        // Build middleware context
+        let middleware_ctx = if let Some(agent_ctx) = agent_context {
+            ToolContext::from_agent_context(agent_ctx)
+        } else {
+            ToolContext::new("unknown".to_string())
+        };
+
+        // Get middleware stack
+        let middleware_stack = self.middleware.read().await;
+        let params = parameters.clone().unwrap_or(Value::Null);
+
+        // Run before_tool middleware
+        let (action, final_params) = middleware_stack
+            .process_before_tool(name, &params, &middleware_ctx)
+            .await;
+
+        // Handle middleware action
+        let result = match action {
+            ToolMiddlewareAction::Continue | ToolMiddlewareAction::ModifyParams(_) => {
+                // Execute tool with (potentially modified) parameters
+                let exec_params = if matches!(action, ToolMiddlewareAction::ModifyParams(_)) {
+                    Some(final_params)
+                } else {
+                    parameters
+                };
+                tool.execute(exec_params, agent_context).await?
+            }
+            ToolMiddlewareAction::Abort { reason, synthetic_result } => {
+                tracing::info!("Tool {} aborted by middleware: {}", name, reason);
+                synthetic_result.unwrap_or_else(|| ToolResult::error(reason))
+            }
+            ToolMiddlewareAction::Skip => {
+                tracing::info!("Tool {} skipped by middleware", name);
+                return Ok(ToolResult::success(Value::Null));
+            }
+        };
+
+        // Run after_tool middleware
+        let (after_action, final_result) = middleware_stack
+            .process_after_tool(name, &result, &middleware_ctx)
+            .await;
+
+        // Handle after-tool action
+        match after_action {
+            AfterToolAction::PassThrough => Ok(final_result),
+            AfterToolAction::ModifyResult(modified) => Ok(modified),
+            AfterToolAction::InjectContext(context) => {
+                // For now, log the context injection - actual injection requires
+                // changes to the agent event loop to handle the injected context
+                tracing::debug!("Middleware injected context: {}", context);
+                Ok(final_result)
+            }
+        }
     }
-    
+
     /// Get all registered tool names
     pub async fn tool_names(&self) -> Vec<String> {
         let tools = self.tools.read().await;
         tools.keys().cloned().collect()
     }
-    
+
     /// Check if a tool is registered
     pub async fn has_tool(&self, name: &str) -> bool {
         let tools = self.tools.read().await;
@@ -649,7 +753,6 @@ impl ToolRegistry {
         let tools = self.tools.read().await;
         tools.get(name).cloned()
     }
-
 }
 
 impl Default for ToolRegistry {
@@ -666,12 +769,6 @@ impl std::fmt::Debug for ToolRegistry {
     }
 }
 
-
-
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -683,17 +780,17 @@ mod tests {
         name: String,
         description: String,
     }
-    
+
     #[async_trait]
     impl Tool for MockUnifiedTool {
         fn name(&self) -> &str {
             &self.name
         }
-        
+
         fn description(&self) -> &str {
             &self.description
         }
-        
+
         fn parameters_schema(&self) -> Value {
             json!({
                 "type": "object",
@@ -706,8 +803,12 @@ mod tests {
                 "required": ["message"]
             })
         }
-        
-        async fn execute(&self, parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
+
+        async fn execute(
+            &self,
+            parameters: Option<Value>,
+            _agent_context: Option<&crate::agent::AgentContext>,
+        ) -> Result<ToolResult, ToolError> {
             let params = parameters.unwrap_or(Value::Null);
             Ok(ToolResult::success(json!({
                 "result": "success",
@@ -715,8 +816,6 @@ mod tests {
             })))
         }
     }
-
-
 
     #[tokio::test]
     async fn test_tool_retrieval() {
@@ -769,8 +868,10 @@ mod tests {
 
         registry.register_tool(tool).await.unwrap();
 
-        let result = registry.execute_tool("test_tool", Some(json!({"message": "Hello, world!"})), None)
-            .await.unwrap();
+        let result = registry
+            .execute_tool("test_tool", Some(json!({"message": "Hello, world!"})), None)
+            .await
+            .unwrap();
 
         assert!(result.success);
         assert_eq!(result.content["result"], "success");
@@ -780,7 +881,12 @@ mod tests {
     async fn test_tool_execution_not_found() {
         let registry = ToolRegistry::new();
 
-        let result = registry.execute_tool("nonexistent_tool", Some(json!({"message": "Hello, world!"})), None)
+        let result = registry
+            .execute_tool(
+                "nonexistent_tool",
+                Some(json!({"message": "Hello, world!"})),
+                None,
+            )
             .await;
 
         assert!(result.is_err());
@@ -801,7 +907,7 @@ mod tests {
 
         registry.register_tool(tool).await.unwrap();
         assert!(registry.has_tool("test_tool").await);
-        
+
         let tool_names = registry.tool_names().await;
         assert_eq!(tool_names.len(), 1);
         assert!(tool_names.contains(&"test_tool".to_string()));
@@ -827,7 +933,10 @@ mod tests {
         let schemas = registry.get_tool_schemas().await;
         assert_eq!(schemas.len(), 2);
 
-        let names: Vec<&str> = schemas.iter().map(|s| s["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> = schemas
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect();
         assert!(names.contains(&"tool1"));
         assert!(names.contains(&"tool2"));
     }
@@ -888,7 +997,6 @@ mod tests {
         assert!(tool_names.contains(&"tool2".to_string()));
     }
 
-
     #[tokio::test]
     async fn test_registry_tool_execution_parallel() {
         let registry = ToolRegistry::new();
@@ -907,10 +1015,14 @@ mod tests {
         registry.register_tool(tool2).await.unwrap();
 
         // Test individual executions
-        let result1 = registry.execute_tool("tool1", Some(json!({"message": "Message 1"})), None)
-            .await.unwrap();
-        let result2 = registry.execute_tool("tool2", Some(json!({"message": "Message 2"})), None)
-            .await.unwrap();
+        let result1 = registry
+            .execute_tool("tool1", Some(json!({"message": "Message 1"})), None)
+            .await
+            .unwrap();
+        let result2 = registry
+            .execute_tool("tool2", Some(json!({"message": "Message 2"})), None)
+            .await
+            .unwrap();
 
         assert!(result1.success);
         assert!(result2.success);
@@ -930,12 +1042,15 @@ mod tests {
         registry.register_tool(tool1).await.unwrap();
 
         // Test success case
-        let result1 = registry.execute_tool("tool1", Some(json!({"message": "Message 1"})), None)
-            .await.unwrap();
+        let result1 = registry
+            .execute_tool("tool1", Some(json!({"message": "Message 1"})), None)
+            .await
+            .unwrap();
         assert!(result1.success);
 
         // Test missing tool case
-        let result2 = registry.execute_tool("missing_tool", Some(json!({"message": "Message 2"})), None)
+        let result2 = registry
+            .execute_tool("missing_tool", Some(json!({"message": "Message 2"})), None)
             .await;
         assert!(result2.is_err());
         if let Err(ToolError::ToolNotFound { name }) = result2 {
@@ -995,7 +1110,7 @@ mod tests {
             tool_config.tools.len()
         );
     }
-    
+
     // Tests for the unified tool system (now the primary system)
     #[tokio::test]
     async fn test_unified_tool_registry_creation() {
@@ -1003,7 +1118,7 @@ mod tests {
         assert_eq!(registry.tool_names().await.len(), 0);
         assert!(!registry.has_tool("test").await);
     }
-    
+
     #[tokio::test]
     async fn test_unified_tool_registration() {
         let registry = ToolRegistry::new();
@@ -1011,13 +1126,13 @@ mod tests {
             name: "test_tool".to_string(),
             description: "A test tool".to_string(),
         });
-        
+
         registry.register_tool(tool).await.unwrap();
-        
+
         assert!(registry.has_tool("test_tool").await);
         assert_eq!(registry.tool_names().await.len(), 1);
     }
-    
+
     #[tokio::test]
     async fn test_unified_tool_execution() {
         let registry = ToolRegistry::new();
@@ -1025,51 +1140,56 @@ mod tests {
             name: "test_tool".to_string(),
             description: "A test tool".to_string(),
         });
-        
+
         registry.register_tool(tool).await.unwrap();
-        
-        let result = registry.execute_tool(
-            "test_tool", 
-            Some(json!({"message": "Hello"})),
-            None
-        ).await.unwrap();
-        
+
+        let result = registry
+            .execute_tool("test_tool", Some(json!({"message": "Hello"})), None)
+            .await
+            .unwrap();
+
         assert!(result.success);
         assert_eq!(result.content["result"], "success");
         assert!(result.error.is_none());
     }
-    
+
     #[tokio::test]
     async fn test_unified_tool_duplicate_registration() {
         let registry = ToolRegistry::new();
-        
+
         let tool1 = Box::new(MockUnifiedTool {
             name: "duplicate_tool".to_string(),
             description: "First tool".to_string(),
         });
-        
+
         let tool2 = Box::new(MockUnifiedTool {
             name: "duplicate_tool".to_string(),
             description: "Second tool".to_string(),
         });
-        
+
         registry.register_tool(tool1).await.unwrap();
         let result = registry.register_tool(tool2).await;
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ToolError::DuplicateTool { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolError::DuplicateTool { .. }
+        ));
     }
-    
+
     #[tokio::test]
     async fn test_unified_tool_not_found() {
         let registry = ToolRegistry::new();
-        
+
         let result = registry.execute_tool("nonexistent", None, None).await;
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ToolError::ToolNotFound { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolError::ToolNotFound { .. }
+        ));
     }
-    
+
     #[tokio::test]
     async fn test_unified_tool_schemas() {
         let registry = ToolRegistry::new();
@@ -1077,16 +1197,15 @@ mod tests {
             name: "schema_test".to_string(),
             description: "Schema test tool".to_string(),
         });
-        
+
         registry.register_tool(tool).await.unwrap();
-        
+
         let schemas = registry.get_tool_schemas().await;
         assert_eq!(schemas.len(), 1);
-        
+
         let schema = &schemas[0];
         assert_eq!(schema["name"], "schema_test");
         assert_eq!(schema["description"], "Schema test tool");
         assert!(schema["input_schema"].is_object());
     }
-    
 }

@@ -464,7 +464,7 @@ pub mod LMStudio {
     #[derive(Debug, Clone, Copy)]
     pub struct Gemma3_12B;
 
-    /// Llama 3 70B model via LM Studio  
+    /// Llama 3 70B model via LM Studio
     #[derive(Debug, Clone, Copy)]
     pub struct Llama3_70B;
 
@@ -643,7 +643,7 @@ pub mod LMStudio {
             "Tessa Rust 7B (Local)"
         }
         fn default_temperature(&self) -> f32 {
-            0.3  // Lower temperature for more precise code analysis
+            0.3 // Lower temperature for more precise code analysis
         }
         fn default_max_tokens(&self) -> u32 {
             2_048

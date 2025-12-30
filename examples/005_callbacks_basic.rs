@@ -105,7 +105,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n📋 Other Callback Configurations Available:");
     println!("   • Agent::builder().with_verbose_callbacks() - Show reasoning");
-    println!("   • Agent::builder().with_performance_callbacks(tracing::Level::INFO) - Focus on metrics");
+    println!(
+        "   • Agent::builder().with_performance_callbacks(tracing::Level::INFO) - Focus on metrics"
+    );
     println!("   • Agent::builder().with_callback_handler(custom_handler) - Your own handler");
     println!("   • Agent::builder().with_composite_callbacks(vec![...]) - Multiple handlers");
 
@@ -113,4 +115,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

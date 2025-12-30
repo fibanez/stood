@@ -4,6 +4,8 @@
 //! and comprehensive event loop monitoring to diagnose performance issues.
 
 use crate::StoodError;
+use serde_json::{Map, Value};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,9 +18,7 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
-use serde_json::{Map, Value};
 use uuid::Uuid;
-use std::io::{self, Write};
 
 /// Custom writer that reorders JSON fields to put source location first
 struct SourceLocationFirstWriter<W> {
@@ -41,12 +41,12 @@ impl<W: Write> Write for SourceLocationFirstWriter<W> {
                 if let Ok(mut json) = serde_json::from_str::<Map<String, Value>>(trimmed) {
                     // Create a new ordered map with timestamp first, then source location
                     let mut ordered = Map::new();
-                    
+
                     // Add timestamp first
                     if let Some(timestamp) = json.remove("timestamp") {
                         ordered.insert("timestamp".to_string(), timestamp);
                     }
-                    
+
                     // Add source location fields next (in specific order)
                     if let Some(filename) = json.remove("filename") {
                         ordered.insert("filename".to_string(), filename);
@@ -57,26 +57,26 @@ impl<W: Write> Write for SourceLocationFirstWriter<W> {
                     if let Some(target) = json.remove("target") {
                         ordered.insert("target".to_string(), target);
                     }
-                    
+
                     // Add level
                     if let Some(level) = json.remove("level") {
                         ordered.insert("level".to_string(), level);
                     }
-                    
+
                     // Add all remaining fields
                     for (key, value) in json {
                         ordered.insert(key, value);
                     }
-                    
+
                     // Write the reordered JSON with newline
-                    let reordered_json = serde_json::to_string(&ordered)
-                        .unwrap_or_else(|_| trimmed.to_string());
+                    let reordered_json =
+                        serde_json::to_string(&ordered).unwrap_or_else(|_| trimmed.to_string());
                     let output = format!("{}\n", reordered_json);
                     return self.inner.write(output.as_bytes());
                 }
             }
         }
-        
+
         // Fallback to original content if parsing fails
         self.inner.write(buf)
     }
@@ -203,20 +203,20 @@ pub fn init_logging(config: LoggingConfig) -> Result<LoggingGuard, StoodError> {
     let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
 
     // Create filter that excludes key events and other noise
-    let base_filter = EnvFilter::try_new(&config.file_log_level)
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-    
+    let base_filter =
+        EnvFilter::try_new(&config.file_log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+
     let file_filter = base_filter
-        .add_directive("rustyline=off".parse().unwrap())  // Exclude rustyline key events
-        .add_directive("crossterm=off".parse().unwrap())  // Exclude terminal events
-        .add_directive("termion=off".parse().unwrap())    // Exclude terminal events
-        .add_directive("tui=off".parse().unwrap())        // Exclude TUI events
-        .add_directive("winit=off".parse().unwrap())      // Exclude window events
-        .add_directive("wgpu=off".parse().unwrap())       // Exclude GPU events
-        .add_directive("tokio=warn".parse().unwrap())     // Reduce tokio noise
-        .add_directive("hyper=warn".parse().unwrap())     // Reduce HTTP noise
-        .add_directive("h2=warn".parse().unwrap())        // Reduce HTTP/2 noise
-        .add_directive("reqwest=warn".parse().unwrap())   // Reduce reqwest noise
+        .add_directive("rustyline=off".parse().unwrap()) // Exclude rustyline key events
+        .add_directive("crossterm=off".parse().unwrap()) // Exclude terminal events
+        .add_directive("termion=off".parse().unwrap()) // Exclude terminal events
+        .add_directive("tui=off".parse().unwrap()) // Exclude TUI events
+        .add_directive("winit=off".parse().unwrap()) // Exclude window events
+        .add_directive("wgpu=off".parse().unwrap()) // Exclude GPU events
+        .add_directive("tokio=warn".parse().unwrap()) // Reduce tokio noise
+        .add_directive("hyper=warn".parse().unwrap()) // Reduce HTTP noise
+        .add_directive("h2=warn".parse().unwrap()) // Reduce HTTP/2 noise
+        .add_directive("reqwest=warn".parse().unwrap()) // Reduce reqwest noise
         .add_directive("aws_smithy=warn".parse().unwrap()) // Reduce AWS SDK noise
         .add_directive("aws_config=warn".parse().unwrap()) // Reduce AWS config noise
         .add_directive("aws_credential_types=warn".parse().unwrap()); // Reduce AWS credential noise
@@ -226,7 +226,7 @@ pub fn init_logging(config: LoggingConfig) -> Result<LoggingGuard, StoodError> {
     if config.json_format {
         // Use custom writer that reorders JSON fields
         let custom_writer = SourceLocationFirstWriter::new(file_writer);
-        
+
         let file_layer = tracing_subscriber::fmt::layer()
             .with_writer(custom_writer)
             .with_ansi(false)
@@ -234,9 +234,9 @@ pub fn init_logging(config: LoggingConfig) -> Result<LoggingGuard, StoodError> {
             .with_timer(tracing_subscriber::fmt::time::ChronoUtc::new(
                 "%Y-%m-%d %H:%M:%S%.3f UTC".to_string(),
             ))
-            .with_file(true)      // Include filename
+            .with_file(true) // Include filename
             .with_line_number(true) // Include line number
-            .with_target(true)    // Include module path (acts as function context)
+            .with_target(true) // Include module path (acts as function context)
             .json()
             .with_current_span(true)
             .with_span_list(true)
@@ -245,20 +245,23 @@ pub fn init_logging(config: LoggingConfig) -> Result<LoggingGuard, StoodError> {
         if config.console_enabled {
             let console_filter = EnvFilter::try_new(&config.console_log_level)
                 .unwrap_or_else(|_| EnvFilter::new("warn"))
-                .add_directive("rustyline=off".parse().unwrap())  // Exclude rustyline from console too
-                .add_directive("crossterm=off".parse().unwrap())  // Exclude terminal events
-                .add_directive("tokio=warn".parse().unwrap())     // Reduce tokio noise
+                .add_directive("rustyline=off".parse().unwrap()) // Exclude rustyline from console too
+                .add_directive("crossterm=off".parse().unwrap()) // Exclude terminal events
+                .add_directive("tokio=warn".parse().unwrap()) // Reduce tokio noise
                 .add_directive("aws_smithy=warn".parse().unwrap()); // Reduce AWS SDK noise
-                
+
             let console_layer = tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
                 .with_ansi(true)
                 .with_span_events(FmtSpan::NONE)
-                .with_file(true)      // Include filename in console too
+                .with_file(true) // Include filename in console too
                 .with_line_number(true) // Include line number in console too
-                .with_target(true)    // Include module path
+                .with_target(true) // Include module path
                 .with_filter(console_filter);
-            subscriber_builder.with(file_layer).with(console_layer).init();
+            subscriber_builder
+                .with(file_layer)
+                .with(console_layer)
+                .init();
         } else {
             subscriber_builder.with(file_layer).init();
         }
@@ -270,28 +273,31 @@ pub fn init_logging(config: LoggingConfig) -> Result<LoggingGuard, StoodError> {
             .with_timer(tracing_subscriber::fmt::time::ChronoUtc::new(
                 "%Y-%m-%d %H:%M:%S%.3f UTC".to_string(),
             ))
-            .with_file(true)      // Include filename
+            .with_file(true) // Include filename
             .with_line_number(true) // Include line number
-            .with_target(true)    // Include module path
+            .with_target(true) // Include module path
             .with_filter(file_filter);
 
         if config.console_enabled {
             let console_filter = EnvFilter::try_new(&config.console_log_level)
                 .unwrap_or_else(|_| EnvFilter::new("warn"))
-                .add_directive("rustyline=off".parse().unwrap())  // Exclude rustyline from console too
-                .add_directive("crossterm=off".parse().unwrap())  // Exclude terminal events
-                .add_directive("tokio=warn".parse().unwrap())     // Reduce tokio noise
+                .add_directive("rustyline=off".parse().unwrap()) // Exclude rustyline from console too
+                .add_directive("crossterm=off".parse().unwrap()) // Exclude terminal events
+                .add_directive("tokio=warn".parse().unwrap()) // Reduce tokio noise
                 .add_directive("aws_smithy=warn".parse().unwrap()); // Reduce AWS SDK noise
-                
+
             let console_layer = tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
                 .with_ansi(true)
                 .with_span_events(FmtSpan::NONE)
-                .with_file(true)      // Include filename
+                .with_file(true) // Include filename
                 .with_line_number(true) // Include line number
-                .with_target(true)    // Include module path
+                .with_target(true) // Include module path
                 .with_filter(console_filter);
-            subscriber_builder.with(file_layer).with(console_layer).init();
+            subscriber_builder
+                .with(file_layer)
+                .with(console_layer)
+                .init();
         } else {
             subscriber_builder.with(file_layer).init();
         }
@@ -363,7 +369,9 @@ impl PerformanceTracer {
 
     /// Record a model interaction cycle
     pub fn record_cycle(&self, cycle_type: &str, duration: Duration) {
-        let model_interaction_num = self.model_interaction_counter.fetch_add(1, Ordering::SeqCst);
+        let model_interaction_num = self
+            .model_interaction_counter
+            .fetch_add(1, Ordering::SeqCst);
         let now = Instant::now();
 
         // Add to recent cycles for loop detection
@@ -456,7 +464,11 @@ impl PerformanceTracer {
     }
 
     /// Check for potential infinite loops in cycles
-    fn check_for_loops(&self, cycles: &std::collections::VecDeque<(Instant, String)>, current_type: &str) {
+    fn check_for_loops(
+        &self,
+        cycles: &std::collections::VecDeque<(Instant, String)>,
+        current_type: &str,
+    ) {
         if cycles.len() < 10 {
             return;
         }
@@ -498,7 +510,10 @@ impl PerformanceTracer {
 
     /// Get current operation stack depth
     fn get_stack_depth(&self) -> usize {
-        self.operation_stack.lock().map(|stack| stack.len()).unwrap_or(0)
+        self.operation_stack
+            .lock()
+            .map(|stack| stack.len())
+            .unwrap_or(0)
     }
 
     /// Get session statistics
@@ -671,7 +686,7 @@ mod tests {
     #[test]
     fn test_performance_tracer() {
         let tracer = PerformanceTracer::new();
-        
+
         {
             let _guard = tracer.start_operation("test_operation");
             thread::sleep(Duration::from_millis(10));
@@ -688,13 +703,13 @@ mod tests {
     #[test]
     fn test_operation_guard() {
         let tracer = PerformanceTracer::new();
-        
+
         let guard = tracer.start_operation("test_operation");
         guard.add_context("key", "value");
         guard.checkpoint("midpoint");
         guard.record_wait("network", Duration::from_millis(5));
         guard.record_blocking("disk_io", Duration::from_millis(2));
-        
+
         // Guard will be dropped here, triggering the completion log
     }
 }

@@ -10,17 +10,17 @@
 //! The event loop supports recursive execution, context management, error recovery,
 //! and comprehensive telemetry integration.
 
+use crate::llm::traits::LlmProvider;
+use crate::types::{ContentBlock, MessageRole};
 use chrono::Utc;
 use serde_json::Value;
 use std::time::{Duration, Instant};
-use crate::llm::traits::LlmProvider;
-use crate::types::{MessageRole, ContentBlock};
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::agent::Agent;
-use crate::agent::callbacks::{CallbackHandler, CallbackEvent};
+use crate::agent::callbacks::{CallbackEvent, CallbackHandler};
 use crate::agent::evaluation::EvaluationStrategy;
+use crate::agent::Agent;
 use crate::error_recovery::RetryConfig;
 use crate::streaming::{StreamCallback, StreamConfig, StreamEvent};
 use crate::telemetry::{CycleMetrics, EventLoopMetrics, PerformanceTracer, ToolExecutionMetric};
@@ -36,10 +36,7 @@ struct CurrentToolInfo {
     name: String,
 }
 
-
-use crate::telemetry::otel::StoodTracer;
-
-use crate::telemetry::metrics::{SharedMetricsCollector, TokenMetrics, RequestMetrics, ToolMetrics};
+use crate::telemetry::StoodTracer;
 
 use crate::StoodError;
 
@@ -123,7 +120,7 @@ impl EvaluationContext {
             system_prompt: agent.conversation().system_prompt().map(|s| s.to_string()),
         }
     }
-    
+
     /// Execute an isolated evaluation call that doesn't pollute the main conversation
     async fn evaluate_with_prompt(&self, prompt: &str) -> Result<String> {
         let mut messages = crate::types::Messages::new();
@@ -131,14 +128,15 @@ impl EvaluationContext {
             messages.add_system_message(system);
         }
         messages.add_user_message(prompt);
-        
-        let response = self.provider
+
+        let response = self
+            .provider
             .chat(&self.model_id, &messages, &Default::default())
             .await
-            .map_err(|e| StoodError::InvalidInput { 
-                message: format!("Isolated evaluation failed: {}", e) 
+            .map_err(|e| StoodError::InvalidInput {
+                message: format!("Isolated evaluation failed: {}", e),
             })?;
-            
+
         Ok(response.content)
     }
 }
@@ -153,21 +151,24 @@ pub struct EventLoop {
     metrics: EventLoopMetrics,
     stream_events: Vec<StreamEvent>,
     callback_handler: Option<Arc<dyn CallbackHandler>>,
-    
+
     tracer: Option<StoodTracer>,
-    
-    metrics_collector: Option<SharedMetricsCollector>,
-    
+
     active_spans: std::collections::HashMap<Uuid, SpanInfo>,
     performance_logger: PerformanceLogger,
     performance_tracer: PerformanceTracer,
-    
+
     // Streaming completion tracking
     stream_completion_time: Option<std::time::Instant>,
     stream_was_active: bool,
-    
+
     // Isolated evaluation context
     evaluation_context: Option<EvaluationContext>,
+
+    // Track pending tool uses for cancellation handling
+    // When cancellation occurs mid-execution, we need to add synthetic
+    // tool_results for any pending tool_uses to keep conversation valid
+    pending_tool_uses: Vec<crate::tools::ToolUse>,
 }
 
 /// Span tracking information for telemetry
@@ -220,17 +221,20 @@ impl EventLoop {
 
     /// Create a new event loop with callback handler
     pub fn new_with_callbacks(
-        agent: Agent, 
-        tool_registry: ToolRegistry, 
+        agent: Agent,
+        tool_registry: ToolRegistry,
         config: EventLoopConfig,
         callback_handler: Option<Arc<dyn CallbackHandler>>,
     ) -> Result<Self> {
-        let mut tool_executor = ToolExecutor::new(config.tool_config.clone());
+        let tool_executor = ToolExecutor::new(config.tool_config.clone());
 
-        
-        let (tracer, metrics_collector) = if config.enable_telemetry {
-            // Initialize tracer with config that respects agent log level
-            let mut telemetry_config = crate::telemetry::TelemetryConfig::from_env();
+        let tracer = if config.enable_telemetry {
+            // Use agent's telemetry config if available, otherwise fall back to env
+            // This ensures custom service names and settings are propagated correctly
+            let mut telemetry_config = agent
+                .telemetry_config()
+                .cloned()
+                .unwrap_or_else(crate::telemetry::TelemetryConfig::from_env);
             // Convert agent LogLevel to telemetry LogLevel and apply it
             let telemetry_log_level = match agent.execution_config.log_level {
                 crate::agent::config::LogLevel::Off => crate::telemetry::LogLevel::OFF,
@@ -238,23 +242,12 @@ impl EventLoop {
                 crate::agent::config::LogLevel::Debug => crate::telemetry::LogLevel::DEBUG,
                 crate::agent::config::LogLevel::Trace => crate::telemetry::LogLevel::TRACE,
             };
-            telemetry_config.log_level = telemetry_log_level;
-            let tracer_opt = StoodTracer::init(telemetry_config).map_err(|e| {
+            telemetry_config.set_log_level(telemetry_log_level);
+            StoodTracer::init(telemetry_config).map_err(|e| {
                 StoodError::configuration_error(format!("Failed to initialize telemetry: {}", e))
-            })?;
-            
-            let metrics_collector = tracer_opt.as_ref()
-                .and_then(|t| t.metrics_collector())
-                .cloned();
-            
-            // Set metrics collector on tool executor
-            if let Some(ref collector) = metrics_collector {
-                tool_executor = tool_executor.with_metrics_collector(collector.clone());
-            }
-            
-            (tracer_opt, metrics_collector)
+            })?
         } else {
-            (None, None)
+            None
         };
 
         // Create evaluation context if evaluation is enabled
@@ -272,21 +265,22 @@ impl EventLoop {
             metrics: EventLoopMetrics::new(),
             stream_events: Vec::new(),
             callback_handler,
-            
+
             tracer,
-            
-            metrics_collector,
-            
+
             active_spans: std::collections::HashMap::new(),
             performance_logger: PerformanceLogger::new(),
             performance_tracer: PerformanceTracer::new(),
-            
+
             // Initialize streaming completion tracking
             stream_completion_time: None,
             stream_was_active: false,
-            
+
             // Initialize evaluation context
             evaluation_context,
+
+            // Initialize pending tool uses tracking
+            pending_tool_uses: Vec::new(),
         })
     }
 
@@ -298,7 +292,7 @@ impl EventLoop {
     /// Create a clean conversation summary for evaluation (no tool blocks, no evaluation artifacts)
     fn create_evaluation_summary(&self) -> String {
         let mut summary_parts = Vec::new();
-        
+
         for message in &self.agent.conversation().messages().messages {
             match message.role {
                 MessageRole::User => {
@@ -329,42 +323,43 @@ impl EventLoop {
                 MessageRole::System => {} // Skip system messages
             }
         }
-        
+
         summary_parts.join("\n")
     }
 
     /// Execute the agentic loop for a given prompt
     pub async fn execute(&mut self, prompt: impl Into<String>) -> Result<EventLoopResult> {
         let prompt = prompt.into();
-        
-        // Create manual OpenTelemetry span for event loop with proper context propagation
-        let event_loop_span = if let Some(ref tracer) = self.tracer {
-            let mut span = tracer.start_agent_span("event_loop");
-            // GenAI attributes already set by start_agent_span() - avoid duplication
-            span.set_attribute("event_loop.prompt", prompt.clone());
-            Some(span)
-        } else {
-            None
-        };
+
+        // Create telemetry span for the event loop
+        let event_loop_span: Option<crate::telemetry::StoodSpan> = self.tracer.as_ref().map(|t| {
+            // Start a new trace for this execution
+            t.start_trace();
+
+            // Start a session for CloudWatch Gen AI Observability
+            // This sets session.id and gen_ai.conversation.id on all spans
+            let mut session = t.start_session();
+            session.set_agent_name(self.agent.agent_name().unwrap_or("stood-agent"));
+            session.set_agent_id(self.agent.agent_id());
+            t.set_session(session);
+
+            t.start_invoke_agent_span(
+                self.agent.agent_name().unwrap_or("stood-agent"),
+                Some(self.agent.agent_id()),
+            )
+        });
         let loop_start = Instant::now();
         let loop_id = Uuid::new_v4();
-        
+
         debug!("🚀 EventLoop::execute() started with prompt: '{}'", prompt);
 
-        let _event_loop_guard = self.performance_tracer.start_operation("event_loop_execution");
+        let _event_loop_guard = self
+            .performance_tracer
+            .start_operation("event_loop_execution");
         _event_loop_guard.add_context("loop_id", &loop_id.to_string());
         _event_loop_guard.add_context("prompt_length", &prompt.len().to_string());
 
         tracing::info!("Starting agentic loop {} for prompt: {}", loop_id, prompt);
-
-        // Record request start metrics
-        
-        if let Some(ref collector) = self.metrics_collector {
-            collector.increment("agent_requests_total", &[
-                crate::telemetry::KeyValue::new("status", "started")
-            ]);
-            collector.record_gauge("agent_concurrent_requests", 1.0, &[]);
-        }
 
         // Emit EventLoopStart callback
         if let Some(ref callback) = self.callback_handler {
@@ -378,13 +373,15 @@ impl EventLoop {
             }
         }
 
-        
         // Remove redundant tracing span - use only OpenTelemetry spans
-        
+
         // Record loop ID and configuration in current tracing span
-        tracing::Span::current().record("event_loop.id", &loop_id.to_string());
-        tracing::Span::current().record("event_loop.max_cycles", &self.config.max_cycles);
-        tracing::Span::current().record("event_loop.max_duration_seconds", &self.config.max_duration.as_secs());
+        tracing::Span::current().record("event_loop.id", loop_id.to_string());
+        tracing::Span::current().record("event_loop.max_cycles", self.config.max_cycles);
+        tracing::Span::current().record(
+            "event_loop.max_duration_seconds",
+            self.config.max_duration.as_secs(),
+        );
 
         // Store the original prompt for tool analysis
         let original_prompt = prompt.clone();
@@ -392,7 +389,10 @@ impl EventLoop {
         // Add initial user message to conversation
         debug!("💬 Adding user message to EventLoop conversation");
         self.agent.add_user_message(&prompt);
-        debug!("💬 EventLoop conversation now has {} messages", self.agent.conversation().message_count());
+        debug!(
+            "💬 EventLoop conversation now has {} messages",
+            self.agent.conversation().message_count()
+        );
 
         let mut model_interaction_count = 0;
         // final_response will be set from all_responses.join() below
@@ -405,19 +405,21 @@ impl EventLoop {
             && !self.is_cancelled()
         {
             let cycle_id = Uuid::new_v4();
-            
+
             // 📊 COMPREHENSIVE MODEL INTERACTION CYCLE LOGGING
-            tracing::info!("🔄 MODEL INTERACTION CYCLE {} of {} - Duration: {}ms", 
-                model_interaction_count + 1, 
+            tracing::info!(
+                "🔄 MODEL INTERACTION CYCLE {} of {} - Duration: {}ms",
+                model_interaction_count + 1,
                 self.config.max_cycles,
                 loop_start.elapsed().as_millis()
             );
-            debug!("🔄 Model Interaction Cycle {} ID: {}, Conversation messages: {}", 
-                model_interaction_count + 1, 
+            debug!(
+                "🔄 Model Interaction Cycle {} ID: {}, Conversation messages: {}",
+                model_interaction_count + 1,
                 cycle_id,
                 self.agent.conversation().message_count()
             );
-            
+
             // Emit CycleStart callback (model interaction)
             if let Some(ref callback) = self.callback_handler {
                 let event = CallbackEvent::CycleStart {
@@ -428,85 +430,102 @@ impl EventLoop {
                     tracing::warn!("Callback error during CycleStart: {}", e);
                 }
             }
-            
-            _event_loop_guard.checkpoint(&format!("starting_model_interaction_{}", model_interaction_count + 1));
+
+            _event_loop_guard.checkpoint(&format!(
+                "starting_model_interaction_{}",
+                model_interaction_count + 1
+            ));
             self.performance_tracer.record_cycle(
-                &format!("model_interaction_start_{}", model_interaction_count + 1), 
-                Duration::from_millis(0)
+                &format!("model_interaction_start_{}", model_interaction_count + 1),
+                Duration::from_millis(0),
             );
 
-            debug!("🔄 Starting model interaction {} with execute_cycle_with_prompt", model_interaction_count + 1);
-            
+            debug!(
+                "🔄 Starting model interaction {} with execute_cycle_with_prompt",
+                model_interaction_count + 1
+            );
+
             // Pass the parent span context to the method for proper parent-child relationship
             let parent_context = event_loop_span.as_ref().map(|span| span.context());
-            
+            // Pass invoke_agent span IDs for log event linking (AgentCore Evaluations)
+            let invoke_agent_span_ids = event_loop_span
+                .as_ref()
+                .map(|span| (span.trace_id().to_string(), span.span_id().to_string()));
+
             match self
-                .execute_cycle_with_prompt_with_context(cycle_id, &original_prompt, model_interaction_count == 0, parent_context)
+                .execute_cycle_with_prompt_with_context(
+                    cycle_id,
+                    &original_prompt,
+                    model_interaction_count == 0,
+                    parent_context,
+                    invoke_agent_span_ids,
+                )
                 .await
             {
                 Ok(cycle_result) => {
                     model_interaction_count += 1;
-                    
+
                     // Collect the response from this cycle
                     all_responses.push(cycle_result.response.clone());
-                    
+
                     // 📊 COMPREHENSIVE MODEL INTERACTION CYCLE COMPLETION LOGGING
-                    tracing::info!("✅ MODEL INTERACTION CYCLE {} COMPLETED - Response length: {}, Should continue: {}, Tool iterations: {}", 
-                        model_interaction_count, 
+                    tracing::info!("✅ MODEL INTERACTION CYCLE {} COMPLETED - Response length: {}, Should continue: {}, Tool iterations: {}",
+                        model_interaction_count,
                         cycle_result.response.len(),
                         cycle_result.should_continue,
                         cycle_result.tool_iterations_used.unwrap_or(0)
                     );
-                    debug!("✅ Model Interaction Cycle {} response preview: '{}'", 
-                             model_interaction_count, 
-                             cycle_result.response.chars().take(100).collect::<String>()
+                    debug!(
+                        "✅ Model Interaction Cycle {} response preview: '{}'",
+                        model_interaction_count,
+                        cycle_result.response.chars().take(100).collect::<String>()
                     );
-                    
+
                     self.performance_tracer.record_cycle(
-                        &format!("model_interaction_completed_{}", model_interaction_count), 
-                        Duration::from_millis(0)
+                        &format!("model_interaction_completed_{}", model_interaction_count),
+                        Duration::from_millis(0),
                     );
 
                     if cycle_result.should_continue {
                         tracing::info!("🔄 Model Interaction Cycle {} completed, CONTINUING to next model interaction", model_interaction_count);
-                        _event_loop_guard.checkpoint(&format!("model_interaction_{}_continue", model_interaction_count));
+                        _event_loop_guard.checkpoint(&format!(
+                            "model_interaction_{}_continue",
+                            model_interaction_count
+                        ));
                         continue;
                     } else {
-                        tracing::info!("🏁 Model Interaction Cycle {} completed task, STOPPING event loop", model_interaction_count);
-                        _event_loop_guard.checkpoint(&format!("model_interaction_{}_final", model_interaction_count));
+                        tracing::info!(
+                            "🏁 Model Interaction Cycle {} completed task, STOPPING event loop",
+                            model_interaction_count
+                        );
+                        _event_loop_guard.checkpoint(&format!(
+                            "model_interaction_{}_final",
+                            model_interaction_count
+                        ));
                         break;
                     }
                 }
                 Err(e) => {
-                    loop_error = Some(format!("Model Interaction Cycle {} failed: {}", cycle_id, e));
+                    loop_error = Some(format!(
+                        "Model Interaction Cycle {} failed: {}",
+                        cycle_id, e
+                    ));
                     tracing::error!("Event loop failed: {}", e);
-                    
+
                     // Emit Error callback
                     if let Some(ref callback) = self.callback_handler {
                         let event = CallbackEvent::Error {
                             error: e.clone(),
-                            context: format!("Model Interaction Cycle {} execution failed", cycle_id),
+                            context: format!(
+                                "Model Interaction Cycle {} execution failed",
+                                cycle_id
+                            ),
                         };
                         if let Err(callback_err) = callback.handle_event(event).await {
                             tracing::warn!("Callback error during Error event: {}", callback_err);
                         }
                     }
-                    
-                    // Record error metrics via tracer if available
-                    if let Some(ref tracer) = self.tracer {
-                        let error_metrics = RequestMetrics {
-                            duration: loop_start.elapsed(),
-                            success: false,
-                            model_invocations: model_interaction_count,
-                            token_metrics: None, // No tokens on error
-                            error_type: Some(e.to_string()),
-                        };
-                        tracer.record_request_metrics(&error_metrics);
-                        
-                        tracing::debug!("📊 Recorded error metrics: duration={}ms, error={}", 
-                            loop_start.elapsed().as_millis(), e);
-                    }
-                    
+
                     break;
                 }
             }
@@ -514,7 +533,7 @@ impl EventLoop {
 
         let total_duration = loop_start.elapsed();
         let mut success = loop_error.is_none();
-        
+
         // Combine all responses from all cycles into the final response
         let mut final_response = all_responses.join("\n\n"); // Join with double newlines for readability
 
@@ -539,68 +558,18 @@ impl EventLoop {
         }
 
         // Final telemetry and logging for event loop completion
-        
+
         // Record final telemetry in current tracing span (automatically handled by #[tracing::instrument])
-        tracing::Span::current().record("event_loop.model_interactions", &model_interaction_count);
-        tracing::Span::current().record("event_loop.total_duration_ms", &total_duration.as_millis());
-        tracing::Span::current().record("event_loop.success", &success);
-
-        // Record comprehensive metrics to OTLP (Phase 2 implementation)
-        
-        if let Some(ref collector) = self.metrics_collector {
-            // Record request-level metrics
-            let request_metrics = crate::telemetry::metrics::RequestMetrics {
-                duration: total_duration,
-                success,
-                model_invocations: model_interaction_count,
-                token_metrics: if self.metrics.total_tokens.total_tokens > 0 {
-                    Some(crate::telemetry::metrics::TokenMetrics::new(
-                        self.metrics.total_tokens.input_tokens as u64,
-                        self.metrics.total_tokens.output_tokens as u64,
-                    ))
-                } else {
-                    None
-                },
-                error_type: loop_error.as_ref().map(|e| {
-                    // Categorize error types for better metrics
-                    if e.contains("timeout") {
-                        "timeout_error".to_string()
-                    } else if e.contains("Tool") {
-                        "tool_error".to_string() 
-                    } else if e.contains("Cycle") {
-                        "cycle_error".to_string()
-                    } else {
-                        "unknown_error".to_string()
-                    }
-                }),
-            };
-            collector.record_request_metrics(&request_metrics);
-
-            // Record tool execution metrics
-            for tool_metric in &self.metrics.tool_executions {
-                let tool_metrics = crate::telemetry::metrics::ToolMetrics {
-                    tool_name: tool_metric.tool_name.clone(),
-                    duration: tool_metric.duration,
-                    success: tool_metric.success,
-                    retry_attempts: 0, // TODO: Add retry tracking
-                    error_type: if !tool_metric.success {
-                        Some("execution_error".to_string())
-                    } else {
-                        None
-                    },
-                };
-                collector.record_tool_metrics(&tool_metrics);
-            }
-
-            tracing::debug!("📊 Recorded comprehensive metrics: {} tokens, {} model_interactions, {} tools", 
-                           self.metrics.total_tokens.total_tokens,
-                           model_interaction_count,
-                           self.metrics.tool_executions.len());
-        }
+        tracing::Span::current().record("event_loop.model_interactions", model_interaction_count);
+        tracing::Span::current().record("event_loop.total_duration_ms", total_duration.as_millis());
+        tracing::Span::current().record("event_loop.success", success);
 
         // Log final performance metrics
-        self.performance_logger
-            .log_event_loop_completion(total_duration, model_interaction_count, success);
+        self.performance_logger.log_event_loop_completion(
+            total_duration,
+            model_interaction_count,
+            success,
+        );
 
         if model_interaction_count >= self.config.max_cycles {
             tracing::warn!(
@@ -620,6 +589,47 @@ impl EventLoop {
 
         if self.is_cancelled() {
             tracing::info!("Event loop cancelled by cancellation token");
+
+            // Add synthetic tool results for any pending tool uses to keep conversation valid
+            // This ensures tool_use blocks always have matching tool_result blocks
+            if !self.pending_tool_uses.is_empty() {
+                tracing::info!(
+                    "Adding synthetic tool results for {} cancelled tool(s)",
+                    self.pending_tool_uses.len()
+                );
+
+                let synthetic_results: Vec<ToolResult> = self.pending_tool_uses
+                    .iter()
+                    .map(|tool_use| ToolResult {
+                        tool_use_id: tool_use.tool_use_id.clone(),
+                        tool_name: tool_use.name.clone(),
+                        input: tool_use.input.clone(),
+                        success: false,
+                        output: Some(serde_json::json!({
+                            "cancelled": true,
+                            "message": format!(
+                                "Tool '{}' execution was cancelled by user request before completion.",
+                                tool_use.name
+                            )
+                        })),
+                        error: Some("Execution cancelled by user request".to_string()),
+                        duration: std::time::Duration::ZERO,
+                    })
+                    .collect();
+
+                // Add synthetic results to conversation to maintain valid state
+                let tool_result_message = self.create_tool_result_message(synthetic_results);
+                self.agent.conversation_mut().add_message(tool_result_message);
+
+                tracing::debug!(
+                    "Added synthetic tool results for cancelled tools: {:?}",
+                    self.pending_tool_uses.iter().map(|t| &t.name).collect::<Vec<_>>()
+                );
+
+                // Clear pending tool uses after adding synthetic results
+                self.pending_tool_uses.clear();
+            }
+
             // Override success status for cancellation
             success = false;
             // Override final response for cancellation
@@ -628,48 +638,44 @@ impl EventLoop {
             loop_error = Some("Execution cancelled by cancellation token".to_string());
         }
 
-        debug!("🏁 EventLoop::execute() completing with final_response: '{}', model_interactions: {}, success: {}", 
+        debug!("🏁 EventLoop::execute() completing with final_response: '{}', model_interactions: {}, success: {}",
                  final_response, model_interaction_count, success);
-        debug!("🏁 EventLoop conversation has {} messages at completion", 
-                 self.agent.conversation().message_count());
-
-        // Record final request metrics
-        
-        if let Some(ref collector) = self.metrics_collector {
-            let status = if success { "success" } else { "error" };
-            
-            // Request completion metrics
-            collector.record_histogram("agent_request_duration", total_duration.as_secs_f64(), &[
-                crate::telemetry::KeyValue::new("status", status)
-            ]);
-            collector.increment("agent_requests_total", &[
-                crate::telemetry::KeyValue::new("status", status)
-            ]);
-            collector.record_counter("agent_model_interactions_total", model_interaction_count as u64, &[]);
-            
-            // Token metrics from accumulated usage
-            if self.metrics.total_tokens.total_tokens > 0 {
-                let token_metrics = TokenMetrics::new(
-                    self.metrics.total_tokens.input_tokens as u64,
-                    self.metrics.total_tokens.output_tokens as u64,
-                );
-                collector.record_token_metrics(&token_metrics);
-            }
-            
-            // Request completion
-            collector.record_gauge("agent_concurrent_requests", 0.0, &[]);
-        }
+        debug!(
+            "🏁 EventLoop conversation has {} messages at completion",
+            self.agent.conversation().message_count()
+        );
 
         // Complete the event loop span
         if let Some(mut span) = event_loop_span {
-            span.set_attribute("event_loop.model_interactions", model_interaction_count as i64);
-            span.set_attribute("event_loop.total_duration_ms", total_duration.as_millis() as i64);
+            span.set_attribute(
+                "event_loop.model_interactions",
+                model_interaction_count as i64,
+            );
+            span.set_attribute(
+                "event_loop.total_duration_ms",
+                total_duration.as_millis() as i64,
+            );
             span.set_attribute("event_loop.success", success);
+
+            // Record token usage from metrics
+            span.record_tokens(
+                self.metrics.total_tokens.input_tokens,
+                self.metrics.total_tokens.output_tokens,
+            );
+
             if let Some(ref error) = loop_error {
                 span.set_attribute("event_loop.error", error.clone());
                 span.set_error(error);
             } else {
                 span.set_success();
+            }
+            // Span will be finished automatically on drop
+        }
+
+        // Flush pending spans to CloudWatch
+        if let Some(ref tracer) = self.tracer {
+            if let Err(e) = tracer.flush().await {
+                tracing::warn!("Failed to flush telemetry spans: {}", e);
             }
         }
 
@@ -691,25 +697,18 @@ impl EventLoop {
         cycle_id: Uuid,
         original_prompt: &str,
         is_first_cycle: bool,
-        parent_context: Option<opentelemetry::Context>,
+        _parent_context: Option<opentelemetry::Context>,
+        invoke_agent_span_ids: Option<(String, String)>, // (trace_id, span_id) for log events
     ) -> Result<CycleResult> {
-        // Create manual OpenTelemetry span for model interaction with proper context propagation
-        let cycle_span = if let Some(ref tracer) = self.tracer {
-            // Phase 7: Dynamic Provider.Model System Attributes
-            let mut span = tracer.start_cycle_span_with_dynamic_attributes(
-                &cycle_id.to_string(),
-                self.agent.model().as_ref(),
-                parent_context.as_ref(),
-            );
-            // Additional cycle-specific attributes
-            span.set_attribute("model_interaction.id", cycle_id.to_string());
-            span.set_attribute("model_interaction.is_first", is_first_cycle);
-            Some(span)
-        } else {
-            None
-        };
-        
-        debug!("🔍 execute_cycle_with_prompt() started for model interaction {}", cycle_id);
+        // Create telemetry span for the model interaction cycle
+        let model_id = self.agent.model().model_id().to_string();
+        let cycle_span: Option<crate::telemetry::StoodSpan> =
+            self.tracer.as_ref().map(|t| t.start_chat_span(&model_id));
+
+        debug!(
+            "🔍 execute_cycle_with_prompt() started for model interaction {}",
+            cycle_id
+        );
         let cycle_start = Instant::now();
         let mut cycle_metrics = CycleMetrics::new(cycle_id);
 
@@ -724,7 +723,6 @@ impl EventLoop {
             is_first_cycle
         );
 
-        
         // Using tracing::instrument for automatic span management and context propagation
 
         // Use original prompt for first interaction, current conversation for subsequent interactions
@@ -748,11 +746,12 @@ impl EventLoop {
         let tool_config = self.tool_registry.get_tool_config().await;
         debug!("🔧 Tool config has {} tools", tool_config.tools.len());
         let tool_config_duration = tool_config_start.elapsed();
-        
+
         if tool_config_duration > Duration::from_millis(10) {
-            self.performance_tracer.record_waiting("tool_config_retrieval", tool_config_duration);
+            self.performance_tracer
+                .record_waiting("tool_config_retrieval", tool_config_duration);
         }
-        
+
         tracing::debug!(
             "Providing {} tools to model for decision making (took {}ms)",
             tool_config.tools.len(),
@@ -762,61 +761,33 @@ impl EventLoop {
         // Phase 2: Model reasoning with tool awareness - Model makes tool decisions
         _cycle_guard.checkpoint("start_model_invocation");
         let model_start = Instant::now();
-        
-        // Model call instrumentation with proper parent context propagation
-        let _model_span = if let Some(ref tracer) = self.tracer {
-            let model_span_id = Uuid::new_v4();
-            let mut span = if let Some(ref cycle_span_ref) = cycle_span {
-                // Use cycle context for proper hierarchy: agent.model_interaction -> model.inference
-                // Phase 7: Dynamic Provider.Model System Attributes
-                let cycle_context = cycle_span_ref.context();
-                tracer.start_model_span_with_dynamic_attributes(
-                    self.agent.model().as_ref(),
-                    self.agent.config().temperature,
-                    self.agent.config().max_tokens,
-                    None,
-                    &cycle_context,
-                )
-            } else {
-                // Fallback to current context if no cycle span
-                tracer.start_model_span_with_dynamic_attributes(
-                    self.agent.model().as_ref(),
-                    self.agent.config().temperature,
-                    self.agent.config().max_tokens,
-                    None,
-                    &opentelemetry::Context::current(),
-                )
-            };
-            let span_info = SpanInfo {
-                span_id: model_span_id.to_string(),
-                start_time: model_start,
-                cycle_id: model_span_id,
-                span_type: SpanType::ModelInvoke,
-            };
-            self.active_spans.insert(model_span_id, span_info);
-            span.set_attribute("model.cycle_id", cycle_id.to_string());
-            span.set_attribute("model.is_first_cycle", is_first_cycle);
-            span.set_attribute("model.tools_available", tool_config.tools.len() as i64);
-            Some((span, model_span_id))
-        } else {
-            None
-        };
 
-        debug!("🌐 About to make LLM provider call. Streaming: {}", self.config.enable_streaming);
+        // Model call span - placeholder for Milestone 2
+        let _model_span: Option<(crate::telemetry::StoodSpan, Uuid)> = None;
+
+        debug!(
+            "🌐 About to make LLM provider call. Streaming: {}",
+            self.config.enable_streaming
+        );
         let llm_response = self.execute_chat_with_tools(&tool_config).await?;
 
         let model_duration = model_start.elapsed();
         _cycle_guard.checkpoint("model_invocation_complete");
-        
+
         // Emit ModelStart callback (after LLM call to capture raw request JSON)
         if let Some(ref callback) = self.callback_handler {
             // Get raw request JSON from provider if available
-            let raw_request_json = if let Some(bedrock_provider) = self.agent.provider().as_any().downcast_ref::<crate::llm::providers::BedrockProvider>() {
+            let raw_request_json = if let Some(bedrock_provider) =
+                self.agent
+                    .provider()
+                    .as_any()
+                    .downcast_ref::<crate::llm::providers::BedrockProvider>()
+            {
                 bedrock_provider.get_last_request_json()
             } else {
                 None
             };
-            
+
             let event = CallbackEvent::ModelStart {
                 provider: self.agent.config().provider,
                 model_id: self.agent.config().model_id.clone(),
@@ -828,17 +799,19 @@ impl EventLoop {
                 tracing::warn!("Callback error during ModelStart: {}", e);
             }
         }
-        
+
         // Emit ModelComplete callback
         if let Some(ref callback) = self.callback_handler {
             let event = CallbackEvent::ModelComplete {
                 response: llm_response.content.clone(),
                 stop_reason: crate::types::StopReason::EndTurn, // TODO: Map from LLM response
                 duration: model_duration,
-                tokens: llm_response.usage.as_ref().map(|t| crate::agent::callbacks::events::TokenUsage {
-                    input_tokens: t.input_tokens,
-                    output_tokens: t.output_tokens,
-                    total_tokens: t.total_tokens,
+                tokens: llm_response.usage.as_ref().map(|t| {
+                    crate::agent::callbacks::events::TokenUsage {
+                        input_tokens: t.input_tokens,
+                        output_tokens: t.output_tokens,
+                        total_tokens: t.total_tokens,
+                    }
                 }),
                 raw_response_data: None, // TODO: Implement in Phase 2
             };
@@ -847,7 +820,6 @@ impl EventLoop {
             }
         }
 
-        
         if let Some((mut span, model_span_id)) = _model_span {
             // Enhanced Model Inference Details - Phase 5
             span.set_attribute("model.duration_ms", model_duration.as_millis() as i64);
@@ -855,7 +827,7 @@ impl EventLoop {
                 "model.stop_reason",
                 "EndTurn", // TODO: Map from LLM response properly
             );
-            
+
             // Add response content preview (first 200 chars for observability)
             let response_preview = if llm_response.content.len() > 200 {
                 format!("{}...", &llm_response.content[..200])
@@ -863,85 +835,88 @@ impl EventLoop {
                 llm_response.content.clone()
             };
             span.set_attribute(
-                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_CONTENT_PREVIEW, 
-                response_preview
+                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_CONTENT_PREVIEW,
+                response_preview,
             );
             span.set_attribute(
-                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_CONTENT_LENGTH, 
-                llm_response.content.len() as i64
+                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_CONTENT_LENGTH,
+                llm_response.content.len() as i64,
             );
-            
+
             // Track tool usage in response
             span.set_attribute(
-                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TOOL_CALLS_COUNT, 
-                llm_response.tool_calls.len() as i64
+                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TOOL_CALLS_COUNT,
+                llm_response.tool_calls.len() as i64,
             );
             if !llm_response.tool_calls.is_empty() {
-                let tool_names: Vec<String> = llm_response.tool_calls.iter()
+                let tool_names: Vec<String> = llm_response
+                    .tool_calls
+                    .iter()
                     .map(|tc| tc.name.clone())
                     .collect();
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TOOL_NAMES, 
-                    tool_names.join(",")
+                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TOOL_NAMES,
+                    tool_names.join(","),
                 );
             }
-            
+
             // Token usage with GenAI semantic conventions
             if let Some(token_usage) = &llm_response.usage {
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_INPUT_TOKENS, 
-                    token_usage.input_tokens as i64
+                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_INPUT_TOKENS,
+                    token_usage.input_tokens as i64,
                 );
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_OUTPUT_TOKENS, 
-                    token_usage.output_tokens as i64
+                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_OUTPUT_TOKENS,
+                    token_usage.output_tokens as i64,
                 );
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_TOTAL_TOKENS, 
-                    token_usage.total_tokens as i64
+                    crate::telemetry::semantic_conventions::GEN_AI_USAGE_TOTAL_TOKENS,
+                    token_usage.total_tokens as i64,
                 );
-                
+
                 // Legacy attributes for backward compatibility
                 span.set_attribute("model.input_tokens", token_usage.input_tokens as i64);
                 span.set_attribute("model.output_tokens", token_usage.output_tokens as i64);
                 span.set_attribute("model.total_tokens", token_usage.total_tokens as i64);
             }
-            
+
             // Response characteristics
             span.set_attribute(
-                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_FINISH_REASON, 
-                "stop"
+                crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_FINISH_REASON,
+                "stop",
             );
             if llm_response.content.is_empty() && !llm_response.tool_calls.is_empty() {
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE, 
-                    "tool_calls_only"
+                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE,
+                    "tool_calls_only",
                 );
             } else if !llm_response.content.is_empty() && llm_response.tool_calls.is_empty() {
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE, 
-                    "text_only"
+                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE,
+                    "text_only",
                 );
             } else if !llm_response.content.is_empty() && !llm_response.tool_calls.is_empty() {
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE, 
-                    "text_and_tools"
+                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE,
+                    "text_and_tools",
                 );
             } else {
                 span.set_attribute(
-                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE, 
-                    "empty"
+                    crate::telemetry::semantic_conventions::GEN_AI_RESPONSE_TYPE,
+                    "empty",
                 );
             }
-            
+
             span.set_success();
             self.active_spans.remove(&model_span_id);
         }
 
         // Log model performance with token usage
-        let token_usage_ref = llm_response.usage.as_ref().map(|u| {
-            crate::types::TokenUsage::new(u.input_tokens, u.output_tokens)
-        });
+        let token_usage_ref = llm_response
+            .usage
+            .as_ref()
+            .map(|u| crate::types::TokenUsage::new(u.input_tokens, u.output_tokens));
         self.performance_logger
             .log_model_performance(model_duration, token_usage_ref.as_ref());
 
@@ -949,55 +924,101 @@ impl EventLoop {
         if let Some(token_usage) = &llm_response.usage {
             cycle_metrics.tokens_used.input_tokens += token_usage.input_tokens;
             cycle_metrics.tokens_used.output_tokens += token_usage.output_tokens;
-            cycle_metrics.tokens_used.total_tokens = cycle_metrics.tokens_used.input_tokens + cycle_metrics.tokens_used.output_tokens;
+            cycle_metrics.tokens_used.total_tokens =
+                cycle_metrics.tokens_used.input_tokens + cycle_metrics.tokens_used.output_tokens;
         }
 
         // Phase 3: Handle model response - may involve multiple tool execution rounds
         let mut current_response = llm_response;
-        
-        tracing::debug!("🔧 Main event loop received response with {} tool calls", current_response.tool_calls.len());
+
+        tracing::debug!(
+            "🔧 Main event loop received response with {} tool calls",
+            current_response.tool_calls.len()
+        );
         for (i, tool_call) in current_response.tool_calls.iter().enumerate() {
-            tracing::debug!("🔧 Main loop tool call {}: {} with input: {}", 
-                i + 1, tool_call.name, serde_json::to_string(&tool_call.input).unwrap_or_default());
+            tracing::debug!(
+                "🔧 Main loop tool call {}: {} with input: {}",
+                i + 1,
+                tool_call.name,
+                serde_json::to_string(&tool_call.input).unwrap_or_default()
+            );
         }
         let mut tool_iteration_count = 0;
         let mut loop_count = 0; // Count each loop iteration/event match
         let max_tool_iterations = self.config.max_tool_iterations; // Use configurable limit
+        // Accumulate tool results for the agent invocation log (Faithfulness evaluation)
+        let mut accumulated_tool_results: Vec<(String, String, String)> = Vec::new();
 
         // Continue processing until we get a final response (no more tools)
         loop {
             loop_count += 1;
-            tracing::debug!("Loop iteration {} - Processing response with {} tool calls, content: '{}'", 
-                loop_count, current_response.tool_calls.len(), 
-                current_response.content.chars().take(100).collect::<String>());
+            tracing::debug!(
+                "Loop iteration {} - Processing response with {} tool calls, content: '{}'",
+                loop_count,
+                current_response.tool_calls.len(),
+                current_response
+                    .content
+                    .chars()
+                    .take(100)
+                    .collect::<String>()
+            );
 
             // TRACE MODE: Print detailed iteration state
             if tracing::level_enabled!(tracing::Level::TRACE) {
-                tracing::trace!("📋 TRACE: ==================== ITERATION {} STATE ====================", loop_count);
-                tracing::trace!("📋 TRACE: Tool iteration count: {}/{}", tool_iteration_count, max_tool_iterations);
-                tracing::trace!("📋 TRACE: Current response content: '{}'", current_response.content);
-                tracing::trace!("📋 TRACE: Current response tool calls: {}", current_response.tool_calls.len());
-                
+                tracing::trace!(
+                    "📋 TRACE: ==================== ITERATION {} STATE ====================",
+                    loop_count
+                );
+                tracing::trace!(
+                    "📋 TRACE: Tool iteration count: {}/{}",
+                    tool_iteration_count,
+                    max_tool_iterations
+                );
+                tracing::trace!(
+                    "📋 TRACE: Current response content: '{}'",
+                    current_response.content
+                );
+                tracing::trace!(
+                    "📋 TRACE: Current response tool calls: {}",
+                    current_response.tool_calls.len()
+                );
+
                 for (i, tool_call) in current_response.tool_calls.iter().enumerate() {
-                    tracing::trace!("📋 TRACE: Tool call #{}: {} ({})", i + 1, tool_call.name, tool_call.id);
-                    tracing::trace!("📋 TRACE: Tool call #{}: Input: {}", i + 1, serde_json::to_string_pretty(&tool_call.input).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                    tracing::trace!(
+                        "📋 TRACE: Tool call #{}: {} ({})",
+                        i + 1,
+                        tool_call.name,
+                        tool_call.id
+                    );
+                    tracing::trace!(
+                        "📋 TRACE: Tool call #{}: Input: {}",
+                        i + 1,
+                        serde_json::to_string_pretty(&tool_call.input)
+                            .unwrap_or_else(|_| "Invalid JSON".to_string())
+                    );
                 }
-                
+
                 let conv_len = self.agent.conversation().messages().len();
-                tracing::trace!("📋 TRACE: Current conversation length: {} messages", conv_len);
-                tracing::trace!("📋 TRACE: ==================== END ITERATION STATE ====================");
+                tracing::trace!(
+                    "📋 TRACE: Current conversation length: {} messages",
+                    conv_len
+                );
+                tracing::trace!(
+                    "📋 TRACE: ==================== END ITERATION STATE ===================="
+                );
             }
             // Check if response has tool calls to determine next action
             if !current_response.tool_calls.is_empty() {
                 tool_iteration_count += 1;
-                
+
                 // 📊 COMPREHENSIVE TOOL ITERATION LOGGING
-                tracing::info!("🔧 TOOL ITERATION {} of {} - {} tool calls requested in this round", 
-                    tool_iteration_count, 
+                tracing::info!(
+                    "🔧 TOOL ITERATION {} of {} - {} tool calls requested in this round",
+                    tool_iteration_count,
                     max_tool_iterations,
                     current_response.tool_calls.len()
                 );
-                
+
                 // FIXED: Check iteration count BEFORE executing tools, not per tool call
                 if tool_iteration_count > max_tool_iterations {
                     tracing::warn!(
@@ -1015,15 +1036,20 @@ impl EventLoop {
                     "🤖 LLM requested {} tools in iteration {}: {:?}",
                     current_response.tool_calls.len(),
                     tool_iteration_count,
-                    current_response.tool_calls.iter().map(|tc| &tc.name).collect::<Vec<_>>()
+                    current_response
+                        .tool_calls
+                        .iter()
+                        .map(|tc| &tc.name)
+                        .collect::<Vec<_>>()
                 );
-                
+
                 // 📊 Detailed tool call breakdown
                 for (i, tool_call) in current_response.tool_calls.iter().enumerate() {
-                    tracing::info!("🔧 Tool {}/{}: {} (ID: {})", 
-                        i + 1, 
+                    tracing::info!(
+                        "🔧 Tool {}/{}: {} (ID: {})",
+                        i + 1,
                         current_response.tool_calls.len(),
-                        tool_call.name, 
+                        tool_call.name,
                         tool_call.id
                     );
                 }
@@ -1043,12 +1069,13 @@ impl EventLoop {
                 // Add assistant message with tool calls to conversation
                 // Create content blocks: text content + tool_use blocks
                 let mut content_blocks = vec![];
-                
+
                 // Add text content if present
                 if !current_response.content.is_empty() {
-                    content_blocks.push(crate::types::ContentBlock::text(&current_response.content));
+                    content_blocks
+                        .push(crate::types::ContentBlock::text(&current_response.content));
                 }
-                
+
                 // Add tool_use blocks from tool_calls
                 for tool_call in &current_response.tool_calls {
                     content_blocks.push(crate::types::ContentBlock::tool_use(
@@ -1057,22 +1084,31 @@ impl EventLoop {
                         tool_call.input.clone(),
                     ));
                 }
-                
+
                 // Create proper assistant message with both text and tool_use blocks
                 let assistant_message = crate::types::Message::new(
                     crate::types::MessageRole::Assistant,
                     content_blocks,
                 );
-                self.agent.conversation_mut().add_message(assistant_message.clone());
+                self.agent
+                    .conversation_mut()
+                    .add_message(assistant_message.clone());
 
                 // Extract tool uses from conversation message (LLM-driven approach)
                 let tool_uses = match self.extract_tool_uses(&assistant_message) {
                     Ok(tools) => {
-                        tracing::debug!("🔧 Extracted {} tool uses from conversation message", tools.len());
+                        tracing::debug!(
+                            "🔧 Extracted {} tool uses from conversation message",
+                            tools.len()
+                        );
                         for (i, tool_use) in tools.iter().enumerate() {
-                            tracing::debug!("🔧 Tool use {}: {} (ID: {}) with input: {}", 
-                                i + 1, tool_use.name, tool_use.tool_use_id, 
-                                serde_json::to_string(&tool_use.input).unwrap_or_default());
+                            tracing::debug!(
+                                "🔧 Tool use {}: {} (ID: {}) with input: {}",
+                                i + 1,
+                                tool_use.name,
+                                tool_use.tool_use_id,
+                                serde_json::to_string(&tool_use.input).unwrap_or_default()
+                            );
                         }
                         tools
                     }
@@ -1083,50 +1119,118 @@ impl EventLoop {
                     }
                 };
 
-                tracing::info!("🔧 Executing {} tools: {}", 
-                    tool_uses.len(), 
-                    tool_uses.iter().map(|tu| tu.name.as_str()).collect::<Vec<_>>().join(", ")
+                tracing::info!(
+                    "🔧 Executing {} tools: {}",
+                    tool_uses.len(),
+                    tool_uses
+                        .iter()
+                        .map(|tu| tu.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
+
+                // Track pending tool uses for cancellation handling
+                // If cancellation occurs during execution, we'll add synthetic results
+                self.pending_tool_uses = tool_uses.clone();
 
                 // Execute tools using existing infrastructure - pass context for proper span hierarchy
                 let cycle_context = cycle_span.as_ref().map(|span| span.context());
-                match self.tool_execution_phase(tool_uses, &mut cycle_metrics, cycle_context).await {
+                match self
+                    .tool_execution_phase(tool_uses, &mut cycle_metrics, cycle_context)
+                    .await
+                {
                     Ok(tool_results) => {
-                        tracing::info!("✅ Tool execution completed with {} results", tool_results.len());
-                        
+                        // Clear pending tool uses - execution completed successfully
+                        self.pending_tool_uses.clear();
+
+                        tracing::info!(
+                            "✅ Tool execution completed with {} results",
+                            tool_results.len()
+                        );
+
                         // Add tool results to conversation for next LLM iteration
-                        let tool_result_message = self.create_tool_result_message(tool_results.clone());
-                        self.agent.conversation_mut().add_message(tool_result_message);
-                        
-                        tracing::debug!("🔄 Tool results added to conversation, making follow-up LLM call");
+                        let tool_result_message =
+                            self.create_tool_result_message(tool_results.clone());
+                        self.agent
+                            .conversation_mut()
+                            .add_message(tool_result_message);
+
+                        // Accumulate tool results for agent invocation log (Faithfulness eval)
+                        for result in &tool_results {
+                            let input_str = serde_json::to_string(&result.input)
+                                .unwrap_or_else(|_| result.input.to_string());
+                            let output_str = result
+                                .output
+                                .as_ref()
+                                .map(|v| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()))
+                                .unwrap_or_else(|| "No output".to_string());
+                            accumulated_tool_results.push((
+                                result.tool_name.clone(),
+                                input_str,
+                                output_str,
+                            ));
+                        }
+
+                        tracing::debug!(
+                            "🔄 Tool results added to conversation, making follow-up LLM call"
+                        );
 
                         // TRACE MODE: Print tool execution results
                         if tracing::level_enabled!(tracing::Level::TRACE) {
                             tracing::trace!("📋 TRACE: ==================== TOOL EXECUTION RESULTS ====================");
                             tracing::trace!("📋 TRACE: Executed {} tools:", tool_results.len());
                             for (i, result) in tool_results.iter().enumerate() {
-                                tracing::trace!("📋 TRACE: Tool result #{}: {} ({})", i + 1, result.tool_name, result.tool_use_id);
-                                tracing::trace!("📋 TRACE: Tool result #{}: Success: {}", i + 1, result.success);
-                                tracing::trace!("📋 TRACE: Tool result #{}: Duration: {:?}", i + 1, result.duration);
+                                tracing::trace!(
+                                    "📋 TRACE: Tool result #{}: {} ({})",
+                                    i + 1,
+                                    result.tool_name,
+                                    result.tool_use_id
+                                );
+                                tracing::trace!(
+                                    "📋 TRACE: Tool result #{}: Success: {}",
+                                    i + 1,
+                                    result.success
+                                );
+                                tracing::trace!(
+                                    "📋 TRACE: Tool result #{}: Duration: {:?}",
+                                    i + 1,
+                                    result.duration
+                                );
                                 if let Some(output) = &result.output {
-                                    tracing::trace!("📋 TRACE: Tool result #{}: Output: {}", i + 1, serde_json::to_string_pretty(output).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                                    tracing::trace!(
+                                        "📋 TRACE: Tool result #{}: Output: {}",
+                                        i + 1,
+                                        serde_json::to_string_pretty(output)
+                                            .unwrap_or_else(|_| "Invalid JSON".to_string())
+                                    );
                                 }
                                 if let Some(error) = &result.error {
-                                    tracing::trace!("📋 TRACE: Tool result #{}: Error: {}", i + 1, error);
+                                    tracing::trace!(
+                                        "📋 TRACE: Tool result #{}: Error: {}",
+                                        i + 1,
+                                        error
+                                    );
                                 }
                             }
                             tracing::trace!("📋 TRACE: ==================== END TOOL RESULTS ====================");
                         }
-                        
+
                         // Debug: Log conversation state before follow-up call for Nova debugging
                         let total_messages = self.agent.conversation().messages().len();
-                        tracing::debug!("🔧 Nova debugging - conversation has {} messages before follow-up", total_messages);
-                        
+                        tracing::debug!(
+                            "🔧 Nova debugging - conversation has {} messages before follow-up",
+                            total_messages
+                        );
+
                         if total_messages > 0 {
-                            let last_message = &self.agent.conversation().messages()[total_messages - 1];
-                            tracing::debug!("🔧 Nova debugging - last message type: {:?}, content length: {}", 
-                                last_message.role, last_message.content.len());
-                            
+                            let last_message =
+                                &self.agent.conversation().messages()[total_messages - 1];
+                            tracing::debug!(
+                                "🔧 Nova debugging - last message type: {:?}, content length: {}",
+                                last_message.role,
+                                last_message.content.len()
+                            );
+
                             // Enhanced debugging: Log actual message content
                             if let Some(text) = last_message.text() {
                                 let preview = if text.len() > 200 {
@@ -1137,7 +1241,7 @@ impl EventLoop {
                                 tracing::debug!("🔧 Last message content preview: '{}'", preview);
                             }
                         }
-                        
+
                         // Log all conversation messages for debugging
                         tracing::debug!("🔧 Full conversation state before follow-up:");
                         for (i, msg) in self.agent.conversation().messages().iter().enumerate() {
@@ -1147,18 +1251,30 @@ impl EventLoop {
                                 } else {
                                     text
                                 };
-                                tracing::debug!("🔧   Message {}: {:?} - '{}'", i, msg.role, preview);
+                                tracing::debug!(
+                                    "🔧   Message {}: {:?} - '{}'",
+                                    i,
+                                    msg.role,
+                                    preview
+                                );
                             } else {
-                                tracing::debug!("🔧   Message {}: {:?} - [Non-text content]", i, msg.role);
+                                tracing::debug!(
+                                    "🔧   Message {}: {:?} - [Non-text content]",
+                                    i,
+                                    msg.role
+                                );
                             }
                         }
-                        
+
                         // Make another LLM call to get the final response based on tool results
                         match self.execute_chat_with_tools(&tool_config).await {
                             Ok(follow_up_response) => {
                                 current_response = follow_up_response;
                                 tracing::debug!("✅ Received follow-up response from LLM");
-                                tracing::debug!("✅ Follow-up response content length: {}", current_response.content.len());
+                                tracing::debug!(
+                                    "✅ Follow-up response content length: {}",
+                                    current_response.content.len()
+                                );
                                 if current_response.content.is_empty() {
                                     tracing::warn!("⚠️  Follow-up response is EMPTY despite successful tool execution!");
                                     tracing::warn!("⚠️  Tool results were available but model didn't generate response");
@@ -1174,53 +1290,61 @@ impl EventLoop {
                             Err(e) => {
                                 tracing::error!("❌ Follow-up LLM call failed: {}", e);
                                 tracing::error!("❌ Follow-up LLM call error details: {:?}", e);
-                                
+
                                 // Include more detailed error information for debugging
                                 let error_details = format!("Follow-up LLM call failed: {}", e);
                                 tracing::warn!("🔧 Nova debugging - conversation state before failed follow-up: {} messages", self.agent.conversation().messages().len());
-                                
+
                                 current_response.tool_calls.clear();
                                 current_response.content = format!(
-                                    "I successfully executed the requested tools but encountered an issue generating the final response. Debug info: {}", 
+                                    "I successfully executed the requested tools but encountered an issue generating the final response. Debug info: {}",
                                     error_details
                                 );
                             }
                         }
-                        
+
                         // RESPONSE VALIDATION AND RECOVERY
                         // Enhanced recovery: Check for missing verification markers in MCP tool responses
-                        let needs_recovery = current_response.content.is_empty() && !tool_results.is_empty();
-                        let has_mcp_tools = tool_results.iter().any(|r| r.tool_name.starts_with("mcp_"));
-                        let missing_verification_markers = has_mcp_tools && 
-                            !current_response.content.contains("MCP SERVER") && 
-                            !current_response.content.contains("🔍") && 
-                            !current_response.content.contains("⏰") &&
-                            !current_response.content.contains("[This") &&
-                            !tool_results.is_empty();
-                            
+                        let needs_recovery =
+                            current_response.content.is_empty() && !tool_results.is_empty();
+                        let has_mcp_tools =
+                            tool_results.iter().any(|r| r.tool_name.starts_with("mcp_"));
+                        let missing_verification_markers = has_mcp_tools
+                            && !current_response.content.contains("MCP SERVER")
+                            && !current_response.content.contains("🔍")
+                            && !current_response.content.contains("⏰")
+                            && !current_response.content.contains("[This")
+                            && !tool_results.is_empty();
+
                         if needs_recovery || missing_verification_markers {
                             if needs_recovery {
-                                tracing::warn!("🚨 EMPTY RESPONSE DETECTED - Implementing recovery strategy");
+                                tracing::warn!(
+                                    "🚨 EMPTY RESPONSE DETECTED - Implementing recovery strategy"
+                                );
                                 tracing::warn!("🚨 Tools executed successfully but LLM returned empty response");
                             } else if missing_verification_markers {
                                 tracing::warn!("🚨 MCP VERIFICATION MARKERS MISSING - Implementing recovery strategy");
                                 tracing::warn!("🚨 MCP tools executed but verification markers not preserved in response");
-                                tracing::warn!("🚨 Expected markers: 'MCP SERVER', '🔍', '⏰', '[This'");
+                                tracing::warn!(
+                                    "🚨 Expected markers: 'MCP SERVER', '🔍', '⏰', '[This'"
+                                );
                             }
-                            
+
                             // Strategy 1: Generate response from tool outputs
                             let mut recovered_response = String::new();
                             if missing_verification_markers {
                                 recovered_response.push_str("Here are the complete, unmodified tool results as requested:\n\n");
                             } else {
-                                recovered_response.push_str("Based on the tool execution results:\n\n");
+                                recovered_response
+                                    .push_str("Based on the tool execution results:\n\n");
                             }
-                            
-                            for (_i, result) in tool_results.iter().enumerate() {
+
+                            for result in tool_results.iter() {
                                 if result.success {
                                     if let Some(output) = &result.output {
-                                        recovered_response.push_str(&format!("**{}**: ", result.tool_name));
-                                        
+                                        recovered_response
+                                            .push_str(&format!("**{}**: ", result.tool_name));
+
                                         // Handle different output types
                                         match output {
                                             serde_json::Value::String(s) => {
@@ -1230,34 +1354,83 @@ impl EventLoop {
                                                 recovered_response.push_str(&n.to_string());
                                             }
                                             _ => {
-                                                recovered_response.push_str(&serde_json::to_string_pretty(output).unwrap_or_else(|_| "Tool executed successfully".to_string()));
+                                                recovered_response.push_str(
+                                                    &serde_json::to_string_pretty(output)
+                                                        .unwrap_or_else(|_| {
+                                                            "Tool executed successfully".to_string()
+                                                        }),
+                                                );
                                             }
                                         }
                                         recovered_response.push_str("\n\n");
                                     } else {
-                                        recovered_response.push_str(&format!("**{}**: Tool executed successfully\n\n", result.tool_name));
+                                        recovered_response.push_str(&format!(
+                                            "**{}**: Tool executed successfully\n\n",
+                                            result.tool_name
+                                        ));
                                     }
                                 } else {
-                                    recovered_response.push_str(&format!("**{}**: Error - {}\n\n", 
-                                        result.tool_name, 
-                                        result.error.as_ref().unwrap_or(&"Unknown error".to_string())
+                                    recovered_response.push_str(&format!(
+                                        "**{}**: Error - {}\n\n",
+                                        result.tool_name,
+                                        result
+                                            .error
+                                            .as_ref()
+                                            .unwrap_or(&"Unknown error".to_string())
                                     ));
                                 }
                             }
-                            
+
                             current_response.content = recovered_response;
                             tracing::info!("✅ RECOVERY SUCCESS - Generated response from tool outputs ({} chars)", current_response.content.len());
                         }
                     }
                     Err(e) => {
                         tracing::error!("❌ Tool execution failed: {}", e);
+
+                        // Add synthetic tool results for pending tool uses to keep conversation valid
+                        // This ensures tool_use blocks always have matching tool_result blocks
+                        if !self.pending_tool_uses.is_empty() {
+                            tracing::info!(
+                                "Adding synthetic tool results for {} failed tool(s)",
+                                self.pending_tool_uses.len()
+                            );
+
+                            let synthetic_results: Vec<ToolResult> = self.pending_tool_uses
+                                .iter()
+                                .map(|tool_use| ToolResult {
+                                    tool_use_id: tool_use.tool_use_id.clone(),
+                                    tool_name: tool_use.name.clone(),
+                                    input: tool_use.input.clone(),
+                                    success: false,
+                                    output: Some(serde_json::json!({
+                                        "error": true,
+                                        "message": format!(
+                                            "Tool '{}' execution failed: {}",
+                                            tool_use.name, e
+                                        )
+                                    })),
+                                    error: Some(format!("Tool execution failed: {}", e)),
+                                    duration: std::time::Duration::ZERO,
+                                })
+                                .collect();
+
+                            // Add synthetic results to conversation to maintain valid state
+                            let tool_result_message = self.create_tool_result_message(synthetic_results);
+                            self.agent.conversation_mut().add_message(tool_result_message);
+
+                            // Clear pending tool uses after adding synthetic results
+                            self.pending_tool_uses.clear();
+                        }
+
                         // Graceful fallback - provide error context but continue
                         current_response.tool_calls.clear();
                         current_response.content = format!("I encountered an issue executing the requested tools: {}. Let me provide what I can based on my knowledge.", e);
-                        tracing::debug!("🔄 Tool execution failed, continuing with fallback response");
+                        tracing::debug!(
+                            "🔄 Tool execution failed, continuing with fallback response"
+                        );
                     }
                 }
-
             } else {
                 // No tool calls, this is the final response
                 tracing::debug!("🤖 LLM response contains no tool calls, treating as final answer");
@@ -1269,19 +1442,56 @@ impl EventLoop {
 
         // Wait for stream completion if streaming was active to prevent evaluation/streaming overlap
         self.wait_for_stream_completion().await;
-        
+
         // Evaluate whether to continue based on the configured strategy BEFORE adding response to conversation
-        let evaluation_result = self.evaluate_continuation(&current_response, &cycle_metrics).await?;
-        
-        tracing::info!("🤔 Evaluation result: decision={}, additional_content_length={}", 
-            evaluation_result.decision, 
-            evaluation_result.response.as_ref().map(|r| r.len()).unwrap_or(0)
+        let evaluation_result = self
+            .evaluate_continuation(&current_response, &cycle_metrics)
+            .await?;
+
+        tracing::info!(
+            "🤔 Evaluation result: decision={}, additional_content_length={}",
+            evaluation_result.decision,
+            evaluation_result
+                .response
+                .as_ref()
+                .map(|r| r.len())
+                .unwrap_or(0)
         );
 
         // Add the assistant's response to conversation (always, even if empty)
         self.agent
             .conversation_mut()
             .add_assistant_message(&current_response.content);
+
+        // Queue log event for AgentCore Evaluations (prompt/response content)
+        // Link to invoke_agent span (not chat span) as required by AgentCore
+        // Use the version with tool results for Faithfulness evaluation
+        if let (Some(tracer), Some((trace_id, span_id))) =
+            (&self.tracer, &invoke_agent_span_ids)
+        {
+            if tracer.can_export_log_events() && !current_response.content.is_empty() {
+                let system_prompt = self.agent.conversation().system_prompt();
+                if accumulated_tool_results.is_empty() {
+                    tracer.queue_agent_invocation_log(
+                        trace_id,
+                        span_id,
+                        system_prompt,
+                        original_prompt,
+                        &current_response.content,
+                    );
+                } else {
+                    // Include tool results for Faithfulness evaluation
+                    tracer.queue_agent_invocation_with_tools_log(
+                        trace_id,
+                        span_id,
+                        system_prompt,
+                        original_prompt,
+                        &accumulated_tool_results,
+                        &current_response.content,
+                    );
+                }
+            }
+        }
 
         // If evaluation decided to continue, add the additional content as a USER message
         // This will prompt the model to continue working in the next cycle
@@ -1297,49 +1507,43 @@ impl EventLoop {
                 // Fallback: Generate default continuation instruction when CONTINUE decided but no response field
                 "Please continue working on the task. Focus on completing any missing requirements or improving the quality of your work.".to_string()
             };
-            
+
             // Add as USER message so the model will respond to it in the next cycle
-            tracing::info!("📝 Adding evaluation content as user message to continue conversation: '{}'", content_to_add.chars().take(100).collect::<String>());
+            tracing::info!(
+                "📝 Adding evaluation content as user message to continue conversation: '{}'",
+                content_to_add.chars().take(100).collect::<String>()
+            );
             self.agent
                 .conversation_mut()
                 .add_user_message(&content_to_add);
-            tracing::info!("📝 Conversation now has {} messages after adding evaluation content", self.agent.conversation().message_count());
+            tracing::info!(
+                "📝 Conversation now has {} messages after adding evaluation content",
+                self.agent.conversation().message_count()
+            );
         }
 
         let cycle_duration = cycle_start.elapsed();
         let model_invocations = cycle_metrics.model_invocations;
-        let _tool_calls = cycle_metrics.tool_calls;
-        let _tokens_used = cycle_metrics.tokens_used.clone();
+        let tool_calls = cycle_metrics.tool_calls;
+        let tokens_used = cycle_metrics.tokens_used.clone();
 
         cycle_metrics = cycle_metrics.complete_success(cycle_duration);
 
-        
         // Record telemetry in current tracing span (automatically handled by #[tracing::instrument])
-        tracing::Span::current().record("model_interaction.invocations", &model_invocations);
-        tracing::Span::current().record("model_interaction.tool_calls", &_tool_calls);
-        tracing::Span::current().record("model_interaction.duration_ms", &cycle_duration.as_millis());
-        tracing::Span::current().record("model_interaction.should_continue", &evaluation_result.decision);
+        tracing::Span::current().record("model_interaction.invocations", model_invocations);
+        tracing::Span::current().record("model_interaction.tool_calls", tool_calls);
+        tracing::Span::current()
+            .record("model_interaction.duration_ms", cycle_duration.as_millis());
+        tracing::Span::current().record(
+            "model_interaction.should_continue",
+            evaluation_result.decision,
+        );
 
         // Log model interaction performance
         self.performance_logger
             .log_cycle_performance(cycle_duration, cycle_id);
 
         self.metrics.add_cycle(cycle_metrics);
-
-        // Record metrics via tracer if available
-        if let Some(ref tracer) = self.tracer {
-            let request_metrics = RequestMetrics {
-                duration: cycle_duration,
-                success: true, // TODO: Set based on actual success/failure
-                model_invocations,
-                token_metrics: Some(TokenMetrics::new(_tokens_used.input_tokens as u64, _tokens_used.output_tokens as u64)),
-                error_type: None,
-            };
-            tracer.record_request_metrics(&request_metrics);
-            
-            tracing::debug!("📊 Recorded metrics: duration={}ms, tokens={}in/{}out, model_calls={}", 
-                cycle_duration.as_millis(), _tokens_used.input_tokens, _tokens_used.output_tokens, model_invocations);
-        }
 
         tracing::debug!(
             "Cycle {} completed in {:?} with {} model calls and {} loop iterations",
@@ -1350,22 +1554,45 @@ impl EventLoop {
         );
 
         // 📊 FINAL CYCLE SUMMARY
-        tracing::info!("🏁 CYCLE {} SUMMARY: {} tool iterations, {} model calls, {}ms duration", 
+        tracing::info!(
+            "🏁 CYCLE {} SUMMARY: {} tool iterations, {} model calls, {}ms duration",
             cycle_id,
             tool_iteration_count,
             model_invocations,
             cycle_duration.as_millis()
         );
-        
-        // Complete the model interaction span
+
+        // Complete the model interaction span and queue corresponding log event
         if let Some(mut span) = cycle_span {
             span.set_attribute("model_interaction.invocations", model_invocations as i64);
             span.set_attribute("model_interaction.tool_calls", tool_iteration_count as i64);
-            span.set_attribute("model_interaction.duration_ms", cycle_duration.as_millis() as i64);
-            span.set_attribute("model_interaction.should_continue", evaluation_result.decision);
+            span.set_attribute(
+                "model_interaction.duration_ms",
+                cycle_duration.as_millis() as i64,
+            );
+            span.set_attribute(
+                "model_interaction.should_continue",
+                evaluation_result.decision,
+            );
+            // Record token usage for this model interaction
+            span.record_tokens(tokens_used.input_tokens, tokens_used.output_tokens);
             span.set_success();
+
+            // Queue chat completion log event for AgentCore Evaluations
+            // Every span with strands.telemetry.tracer scope must have a corresponding event
+            if let Some(ref tracer) = self.tracer {
+                if tracer.can_export_log_events() && !response.is_empty() {
+                    tracer.queue_chat_completion_log(
+                        span.trace_id(),
+                        span.span_id(),
+                        &model_id,
+                        original_prompt,
+                        &response,
+                    );
+                }
+            }
         }
-        
+
         Ok(CycleResult {
             response,
             should_continue: evaluation_result.decision,
@@ -1373,13 +1600,15 @@ impl EventLoop {
         })
     }
 
-
     /// Extract tool uses from a model response (LLM-driven approach)
     fn extract_tool_uses(
         &self,
         message: &crate::types::Message,
     ) -> Result<Vec<crate::tools::ToolUse>> {
-        tracing::trace!("extract_tool_uses called with {} content blocks", message.content.len());
+        tracing::trace!(
+            "extract_tool_uses called with {} content blocks",
+            message.content.len()
+        );
         let mut tool_uses = Vec::new();
 
         for (i, content_block) in message.content.iter().enumerate() {
@@ -1395,9 +1624,14 @@ impl EventLoop {
 
         tracing::debug!("extract_tool_uses returning {} tool uses", tool_uses.len());
         for (i, tool_use) in tool_uses.iter().enumerate() {
-            tracing::trace!("Tool use {}: name={}, id={}", i, tool_use.name, tool_use.tool_use_id);
+            tracing::trace!(
+                "Tool use {}: name={}, id={}",
+                i,
+                tool_use.name,
+                tool_use.tool_use_id
+            );
         }
-        
+
         tracing::debug!(
             "Extracted {} tool uses from model response",
             tool_uses.len()
@@ -1430,9 +1664,11 @@ impl EventLoop {
         cycle_metrics: &mut CycleMetrics,
         cycle_context: Option<opentelemetry::Context>,
     ) -> Result<Vec<ToolResult>> {
-        let _tool_phase_guard = self.performance_tracer.start_operation("tool_execution_phase");
+        let _tool_phase_guard = self
+            .performance_tracer
+            .start_operation("tool_execution_phase");
         _tool_phase_guard.add_context("tool_count", &tool_uses.len().to_string());
-        
+
         tracing::debug!(
             "Executing tool execution phase with {} tools",
             tool_uses.len()
@@ -1449,9 +1685,9 @@ impl EventLoop {
                 tool_uses.len(),
                 self.tool_executor.config().max_parallel_tools
             );
-            
+
             let execution_start = Instant::now();
-            
+
             // Create parent span for parallel tool execution group
             let parallel_group_span = if let Some(ref tracer) = self.tracer {
                 let mut span = if let Some(ref parent_ctx) = cycle_context {
@@ -1459,22 +1695,25 @@ impl EventLoop {
                 } else {
                     tracer.start_tool_span("parallel_group")
                 };
-                
+
                 // Set parallel execution attributes
                 span.set_attribute("tool.execution.mode", "parallel");
                 span.set_attribute("tool.execution.count", tool_uses.len() as i64);
-                span.set_attribute("tool.execution.max_parallel", self.tool_executor.config().max_parallel_tools as i64);
+                span.set_attribute(
+                    "tool.execution.max_parallel",
+                    self.tool_executor.config().max_parallel_tools as i64,
+                );
                 span.set_attribute("tool.execution.strategy", "tool_executor");
-                
+
                 // Add tool names for correlation
                 let tool_names: Vec<&str> = tool_uses.iter().map(|t| t.name.as_str()).collect();
                 span.set_attribute("tool.execution.tools", tool_names.join(","));
-                
+
                 Some(span)
             } else {
                 None
             };
-            
+
             // Emit ToolStart callbacks for all tools
             if let Some(ref callback) = self.callback_handler {
                 for tool_use in &tool_uses {
@@ -1488,9 +1727,12 @@ impl EventLoop {
                     }
                 }
             }
-            
+
             // Convert to format expected by ToolExecutor
-            let tool_executions: Vec<(std::sync::Arc<dyn crate::tools::Tool>, crate::tools::ToolUse)> = {
+            let tool_executions: Vec<(
+                std::sync::Arc<dyn crate::tools::Tool>,
+                crate::tools::ToolUse,
+            )> = {
                 let mut executions = Vec::new();
                 for tool_use in &tool_uses {
                     if let Some(tool) = self.tool_registry.get_tool(&tool_use.name).await {
@@ -1501,6 +1743,7 @@ impl EventLoop {
                         let error_result = ToolResult {
                             tool_use_id: tool_use.tool_use_id.clone(),
                             tool_name: tool_use.name.clone(),
+                            input: tool_use.input.clone(),
                             success: false,
                             output: None,
                             error: Some(format!("Tool '{}' not found", tool_use.name)),
@@ -1511,15 +1754,11 @@ impl EventLoop {
                 }
                 executions
             };
-            
-            // Execute tools in parallel using ToolExecutor
-            let parallel_results = self.tool_executor.execute_tools_parallel(tool_executions, None).await;
-            
-            // Create individual tool spans and convert results
-            let mut individual_tool_spans: Vec<Option<crate::telemetry::otel::StoodSpan>> = Vec::new();
+
+            // Create individual tool spans BEFORE execution to capture accurate timing
+            let mut individual_tool_spans: Vec<Option<crate::telemetry::StoodSpan>> = Vec::new();
             let parallel_group_context = parallel_group_span.as_ref().map(|span| span.context());
-            
-            // Pre-create individual tool spans for correlation
+
             if let Some(ref tracer) = self.tracer {
                 for tool_use in &tool_uses {
                     let mut tool_span = if let Some(ref group_ctx) = parallel_group_context {
@@ -1527,13 +1766,16 @@ impl EventLoop {
                     } else {
                         tracer.start_tool_span(&tool_use.name)
                     };
-                    
+
                     // Set individual tool attributes
                     tool_span.set_attribute("tool.execution.mode", "parallel");
                     tool_span.set_attribute("tool.name", tool_use.name.clone());
                     tool_span.set_attribute("tool.use_id", tool_use.tool_use_id.clone());
-                    tool_span.set_attribute("tool.input_size_bytes", tool_use.input.to_string().len() as i64);
-                    
+                    tool_span.set_attribute(
+                        "tool.input_size_bytes",
+                        tool_use.input.to_string().len() as i64,
+                    );
+
                     individual_tool_spans.push(Some(tool_span));
                 }
             } else {
@@ -1542,11 +1784,24 @@ impl EventLoop {
                     individual_tool_spans.push(None);
                 }
             }
-            
+
+            // Execute tools in parallel using ToolExecutor
+            let parallel_results = self
+                .tool_executor
+                .execute_tools_parallel(tool_executions, None)
+                .await;
+
             // Convert results and emit callbacks
-            for (i, ((tool_result, metrics), tool_use)) in parallel_results.into_iter().zip(tool_uses.iter()).enumerate() {
-                let duration = metrics.as_ref().map(|m| m.duration).unwrap_or_else(|| execution_start.elapsed());
-                
+            for (i, ((tool_result, metrics), tool_use)) in parallel_results
+                .into_iter()
+                .zip(tool_uses.iter())
+                .enumerate()
+            {
+                let duration = metrics
+                    .as_ref()
+                    .map(|m| m.duration)
+                    .unwrap_or_else(|| execution_start.elapsed());
+
                 let result = if tool_result.success {
                     tracing::debug!(
                         "✅ Tool '{}' completed successfully in {:.2}ms",
@@ -1556,6 +1811,7 @@ impl EventLoop {
                     ToolResult {
                         tool_use_id: tool_use.tool_use_id.clone(),
                         tool_name: tool_use.name.clone(),
+                        input: tool_use.input.clone(),
                         success: true,
                         output: Some(tool_result.content.clone()),
                         error: tool_result.error,
@@ -1570,53 +1826,80 @@ impl EventLoop {
                     ToolResult {
                         tool_use_id: tool_use.tool_use_id.clone(),
                         tool_name: tool_use.name.clone(),
+                        input: tool_use.input.clone(),
                         success: false,
                         output: None,
                         error: Some(tool_result.content.to_string()),
                         duration,
                     }
                 };
-                
+
                 // Complete individual tool span with results
-                if let Some(mut tool_span) = individual_tool_spans.get_mut(i).and_then(|s| s.take()) {
+                if let Some(mut tool_span) = individual_tool_spans.get_mut(i).and_then(|s| s.take())
+                {
                     // Set completion attributes
                     tool_span.set_attribute("tool.duration_ms", duration.as_millis() as i64);
                     tool_span.set_attribute("tool.success", result.success);
-                    tool_span.set_attribute("tool.output_size_bytes", 
-                        result.output.as_ref().map(|o| o.to_string().len()).unwrap_or(0) as i64);
-                    
+                    tool_span.set_attribute(
+                        "tool.output_size_bytes",
+                        result
+                            .output
+                            .as_ref()
+                            .map(|o| o.to_string().len())
+                            .unwrap_or(0) as i64,
+                    );
+
                     if let Some(ref error) = result.error {
                         tool_span.set_attribute("tool.error", error.clone());
                         tool_span.set_error(error);
                     } else {
                         tool_span.set_success();
                     }
-                    
+
                     // Add tool execution event
-                    tool_span.add_event("tool.execution.completed", vec![
-                        crate::telemetry::KeyValue::new("tool.name", tool_use.name.clone()),
-                        crate::telemetry::KeyValue::new("tool.duration_ms", duration.as_millis() as i64),
-                        crate::telemetry::KeyValue::new("tool.success", result.success),
-                    ]);
-                    
-                    tool_span.finish();
+                    tool_span.add_event(
+                        "tool.execution.completed",
+                        vec![
+                            crate::telemetry::KeyValue::new("tool.name", tool_use.name.clone()),
+                            crate::telemetry::KeyValue::new(
+                                "tool.duration_ms",
+                                duration.as_millis() as i64,
+                            ),
+                            crate::telemetry::KeyValue::new("tool.success", result.success),
+                        ],
+                    );
+
+                    // Queue tool execution log event for AgentCore Evaluations
+                    // Each tool span needs a corresponding log event with input/output
+                    if let Some(ref tracer) = self.tracer {
+                        if tracer.can_export_log_events() {
+                            let tool_input = serde_json::to_string(&tool_use.input)
+                                .unwrap_or_else(|_| "{}".to_string());
+                            let tool_output = result
+                                .output
+                                .as_ref()
+                                .map(|o| o.to_string())
+                                .unwrap_or_else(|| {
+                                    result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "No output".to_string())
+                                });
+                            tracer.queue_tool_execution_log(
+                                tool_span.trace_id(),
+                                tool_span.span_id(),
+                                &tool_use.name,
+                                &tool_input,
+                                &tool_output,
+                            );
+                        }
+                    }
+
+                    // Finish span with actual duration so the trace timeline is accurate
+                    // This calculates end_time = start_time + duration
+                    tool_span.finish_with_duration(duration);
                 }
-                
-                // Record tool metrics via tracer if available
-                if let Some(ref tracer) = self.tracer {
-                    let tool_metrics = ToolMetrics {
-                        tool_name: tool_use.name.clone(),
-                        duration,
-                        success: result.success,
-                        retry_attempts: 0, // TODO: Track actual retry attempts
-                        error_type: result.error.clone(),
-                    };
-                    tracer.record_tool_metrics(&tool_metrics);
-                    
-                    tracing::debug!("📊 Recorded tool metrics: tool={}, duration={}ms, success={}", 
-                        tool_use.name, duration.as_millis(), result.success);
-                }
-                
+
                 // Emit ToolComplete callback
                 if let Some(ref callback) = self.callback_handler {
                     let event = CallbackEvent::ToolComplete {
@@ -1630,238 +1913,288 @@ impl EventLoop {
                         tracing::warn!("Callback error during ToolComplete: {}", e);
                     }
                 }
-                
+
                 results.push(result);
             }
-            
+
             // Complete parallel group span
             if let Some(mut group_span) = parallel_group_span {
                 let total_execution_time = execution_start.elapsed();
                 let successful_tools = results.iter().filter(|r| r.success).count();
                 let failed_tools = results.len() - successful_tools;
-                
+
                 // Set completion attributes
-                group_span.set_attribute("tool.execution.total_duration_ms", total_execution_time.as_millis() as i64);
-                group_span.set_attribute("tool.execution.successful_count", successful_tools as i64);
+                group_span.set_attribute(
+                    "tool.execution.total_duration_ms",
+                    total_execution_time.as_millis() as i64,
+                );
+                group_span
+                    .set_attribute("tool.execution.successful_count", successful_tools as i64);
                 group_span.set_attribute("tool.execution.failed_count", failed_tools as i64);
-                group_span.set_attribute("tool.execution.success_rate", 
-                    if results.is_empty() { 0.0 } else { successful_tools as f64 / results.len() as f64 });
-                
+                group_span.set_attribute(
+                    "tool.execution.success_rate",
+                    if results.is_empty() {
+                        0.0
+                    } else {
+                        successful_tools as f64 / results.len() as f64
+                    },
+                );
+
                 if failed_tools > 0 {
                     group_span.set_error(&format!("{} tools failed", failed_tools));
                 } else {
                     group_span.set_success();
                 }
-                
+
                 // Add group completion event
-                group_span.add_event("tool.parallel_group.completed", vec![
-                    crate::telemetry::KeyValue::new("tool.group.total_count", results.len() as i64),
-                    crate::telemetry::KeyValue::new("tool.group.successful_count", successful_tools as i64),
-                    crate::telemetry::KeyValue::new("tool.group.duration_ms", total_execution_time.as_millis() as i64),
-                ]);
-                
+                group_span.add_event(
+                    "tool.parallel_group.completed",
+                    vec![
+                        crate::telemetry::KeyValue::new(
+                            "tool.group.total_count",
+                            results.len() as i64,
+                        ),
+                        crate::telemetry::KeyValue::new(
+                            "tool.group.successful_count",
+                            successful_tools as i64,
+                        ),
+                        crate::telemetry::KeyValue::new(
+                            "tool.group.duration_ms",
+                            total_execution_time.as_millis() as i64,
+                        ),
+                    ],
+                );
+
                 group_span.finish();
             }
         } else {
             // Single tool - process individually (keep existing logic for now)
             for (tool_index, tool_use) in tool_uses.into_iter().enumerate() {
-            let execution_start = Instant::now();
-            
-            let _tool_guard = self.performance_tracer.start_operation("individual_tool_execution");
-            _tool_guard.add_context("tool_name", &tool_use.name);
-            _tool_guard.add_context("tool_index", &tool_index.to_string());
-            _tool_guard.add_context("tool_use_id", &tool_use.tool_use_id);
+                let execution_start = Instant::now();
 
-            
-            // Remove redundant tracing span - use only OpenTelemetry spans
-            
-            let _tool_span = if let Some(ref tracer) = self.tracer {
-                let tool_span_id = Uuid::new_v4();
-                let mut span = if let Some(ref parent_ctx) = cycle_context {
-                    tracer.start_tool_span_with_parent_context(&tool_use.name, parent_ctx)
-                } else {
-                    tracer.start_tool_span(&tool_use.name)
-                };
-                let span_info = SpanInfo {
-                    span_id: tool_span_id.to_string(),
-                    start_time: execution_start,
-                    cycle_id: tool_span_id, // Using tool span ID for tracking
-                    span_type: SpanType::ToolExecution,
-                };
-                self.active_spans.insert(tool_span_id, span_info);
-                span.set_attribute("tool.execution.mode", "sequential");
-                span.set_attribute("tool.name", tool_use.name.clone());
-                span.set_attribute("tool.use_id", tool_use.tool_use_id.clone());
-                span.set_attribute(
-                    "tool.input_size_bytes",
-                    tool_use.input.to_string().len() as i64,
-                );
-                Some((span, tool_span_id))
-            } else {
-                None
-            };
+                let _tool_guard = self
+                    .performance_tracer
+                    .start_operation("individual_tool_execution");
+                _tool_guard.add_context("tool_name", &tool_use.name);
+                _tool_guard.add_context("tool_index", &tool_index.to_string());
+                _tool_guard.add_context("tool_use_id", &tool_use.tool_use_id);
 
-            // Log tool execution details for debugging
-            tracing::debug!(
-                "🔧 Executing tool '{}' with input: {}",
-                tool_use.name,
-                serde_json::to_string_pretty(&tool_use.input)
-                    .unwrap_or_else(|_| "invalid JSON".to_string())
-            );
-            
-            // Emit ToolStart callback
-            if let Some(ref callback) = self.callback_handler {
-                let event = CallbackEvent::ToolStart {
-                    tool_name: tool_use.name.clone(),
-                    tool_use_id: tool_use.tool_use_id.clone(),
-                    input: tool_use.input.clone(),
-                };
-                if let Err(e) = callback.handle_event(event).await {
-                    tracing::warn!("Callback error during ToolStart: {}", e);
-                }
-            }
+                // Remove redundant tracing span - use only OpenTelemetry spans
 
-            _tool_guard.checkpoint("start_tool_execution");
-            let tool_execution_start = Instant::now();
-            let tool_result = self
-                .tool_registry
-                .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
-                .await;
-            let tool_execution_duration = tool_execution_start.elapsed();
-            
-            if tool_execution_duration > Duration::from_millis(500) {
-                self.performance_tracer.record_waiting(
-                    &format!("tool_execution_{}", tool_use.name), 
-                    tool_execution_duration
-                );
-            }
-            
-            _tool_guard.checkpoint("tool_execution_complete");
-
-            let result = match tool_result {
-                Ok(tool_result) => {
-                    if tool_result.success {
-                        tracing::debug!(
-                            "✅ Tool '{}' executed successfully in {:.2}ms",
-                            tool_use.name,
-                            execution_start.elapsed().as_secs_f64() * 1000.0
-                        );
-                        tracing::debug!(
-                            "🔧 Tool '{}' output: {}",
-                            tool_use.name,
-                            serde_json::to_string_pretty(&tool_result.content)
-                                .unwrap_or_else(|_| "invalid JSON".to_string())
-                        );
-                        ToolResult {
-                            tool_use_id: tool_use.tool_use_id.clone(),
-                            tool_name: tool_use.name.clone(),
-                            success: true,
-                            output: Some(tool_result.content),
-                            error: None,
-                            duration: execution_start.elapsed(),
-                        }
+                let _tool_span = if let Some(ref tracer) = self.tracer {
+                    let tool_span_id = Uuid::new_v4();
+                    let mut span = if let Some(ref parent_ctx) = cycle_context {
+                        tracer.start_tool_span_with_parent_context(&tool_use.name, parent_ctx)
                     } else {
+                        tracer.start_tool_span(&tool_use.name)
+                    };
+                    let span_info = SpanInfo {
+                        span_id: tool_span_id.to_string(),
+                        start_time: execution_start,
+                        cycle_id: tool_span_id, // Using tool span ID for tracking
+                        span_type: SpanType::ToolExecution,
+                    };
+                    self.active_spans.insert(tool_span_id, span_info);
+                    span.set_attribute("tool.execution.mode", "sequential");
+                    span.set_attribute("tool.name", tool_use.name.clone());
+                    span.set_attribute("tool.use_id", tool_use.tool_use_id.clone());
+                    span.set_attribute(
+                        "tool.input_size_bytes",
+                        tool_use.input.to_string().len() as i64,
+                    );
+                    Some((span, tool_span_id))
+                } else {
+                    None
+                };
+
+                // Log tool execution details for debugging
+                tracing::debug!(
+                    "🔧 Executing tool '{}' with input: {}",
+                    tool_use.name,
+                    serde_json::to_string_pretty(&tool_use.input)
+                        .unwrap_or_else(|_| "invalid JSON".to_string())
+                );
+
+                // Emit ToolStart callback
+                if let Some(ref callback) = self.callback_handler {
+                    let event = CallbackEvent::ToolStart {
+                        tool_name: tool_use.name.clone(),
+                        tool_use_id: tool_use.tool_use_id.clone(),
+                        input: tool_use.input.clone(),
+                    };
+                    if let Err(e) = callback.handle_event(event).await {
+                        tracing::warn!("Callback error during ToolStart: {}", e);
+                    }
+                }
+
+                _tool_guard.checkpoint("start_tool_execution");
+                let tool_execution_start = Instant::now();
+                let tool_result = self
+                    .tool_registry
+                    .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
+                    .await;
+                let tool_execution_duration = tool_execution_start.elapsed();
+
+                if tool_execution_duration > Duration::from_millis(500) {
+                    self.performance_tracer.record_waiting(
+                        &format!("tool_execution_{}", tool_use.name),
+                        tool_execution_duration,
+                    );
+                }
+
+                _tool_guard.checkpoint("tool_execution_complete");
+
+                let result = match tool_result {
+                    Ok(tool_result) => {
+                        if tool_result.success {
+                            tracing::debug!(
+                                "✅ Tool '{}' executed successfully in {:.2}ms",
+                                tool_use.name,
+                                execution_start.elapsed().as_secs_f64() * 1000.0
+                            );
+                            tracing::debug!(
+                                "🔧 Tool '{}' output: {}",
+                                tool_use.name,
+                                serde_json::to_string_pretty(&tool_result.content)
+                                    .unwrap_or_else(|_| "invalid JSON".to_string())
+                            );
+                            ToolResult {
+                                tool_use_id: tool_use.tool_use_id.clone(),
+                                tool_name: tool_use.name.clone(),
+                                input: tool_use.input.clone(),
+                                success: true,
+                                output: Some(tool_result.content),
+                                error: None,
+                                duration: execution_start.elapsed(),
+                            }
+                        } else {
+                            tracing::error!(
+                                "❌ Tool '{}' failed: {}",
+                                tool_use.name,
+                                tool_result.error.as_deref().unwrap_or("Unknown error")
+                            );
+                            tracing::debug!(
+                                "🔧 Tool '{}' failure details - Duration: {:.2}ms",
+                                tool_use.name,
+                                execution_start.elapsed().as_secs_f64() * 1000.0
+                            );
+                            ToolResult {
+                                tool_use_id: tool_use.tool_use_id.clone(),
+                                tool_name: tool_use.name.clone(),
+                                input: tool_use.input.clone(),
+                                success: false,
+                                output: None,
+                                error: tool_result.error,
+                                duration: execution_start.elapsed(),
+                            }
+                        }
+                    }
+                    Err(tool_error) => {
                         tracing::error!(
-                            "❌ Tool '{}' failed: {}",
+                            "❌ Tool '{}' failed with error: {}",
                             tool_use.name,
-                            tool_result.error.as_deref().unwrap_or("Unknown error")
-                        );
-                        tracing::debug!(
-                            "🔧 Tool '{}' failure details - Duration: {:.2}ms",
-                            tool_use.name,
-                            execution_start.elapsed().as_secs_f64() * 1000.0
+                            tool_error
                         );
                         ToolResult {
                             tool_use_id: tool_use.tool_use_id.clone(),
                             tool_name: tool_use.name.clone(),
+                            input: tool_use.input.clone(),
                             success: false,
                             output: None,
-                            error: tool_result.error,
+                            error: Some(tool_error.to_string()),
                             duration: execution_start.elapsed(),
                         }
                     }
-                }
-                Err(tool_error) => {
-                    tracing::error!(
-                        "❌ Tool '{}' failed with error: {}",
-                        tool_use.name,
-                        tool_error
+                };
+
+                // Update telemetry span with tool execution results
+
+                if let Some((mut span, tool_span_id)) = _tool_span {
+                    span.set_attribute("tool.duration_ms", result.duration.as_millis() as i64);
+                    span.set_attribute("tool.success", result.success);
+                    span.set_attribute(
+                        "tool.output_size_bytes",
+                        result
+                            .output
+                            .as_ref()
+                            .map(|o| o.to_string().len())
+                            .unwrap_or(0) as i64,
                     );
-                    ToolResult {
-                        tool_use_id: tool_use.tool_use_id.clone(),
-                        tool_name: tool_use.name.clone(),
-                        success: false,
-                        output: None,
-                        error: Some(tool_error.to_string()),
-                        duration: execution_start.elapsed(),
-                    }
-                }
-            };
 
-            // Update telemetry span with tool execution results
-            
-            if let Some((mut span, tool_span_id)) = _tool_span {
-                span.set_attribute("tool.duration_ms", result.duration.as_millis() as i64);
-                span.set_attribute("tool.success", result.success);
-                span.set_attribute(
-                    "tool.output_size_bytes",
-                    result
-                        .output
-                        .as_ref()
-                        .map(|o| o.to_string().len())
-                        .unwrap_or(0) as i64,
-                );
-
-                if result.success {
-                    span.set_success();
-                } else {
-                    if let Some(ref error_msg) = result.error {
+                    if result.success {
+                        span.set_success();
+                    } else if let Some(ref error_msg) = result.error {
                         span.set_attribute("tool.error", error_msg.clone());
                         span.set_error(error_msg);
                     }
+
+                    // Queue tool execution log event for AgentCore Evaluations
+                    // Each tool span needs a corresponding log event with input/output
+                    if let Some(ref tracer) = self.tracer {
+                        if tracer.can_export_log_events() {
+                            let tool_input = serde_json::to_string(&tool_use.input)
+                                .unwrap_or_else(|_| "{}".to_string());
+                            let tool_output = result
+                                .output
+                                .as_ref()
+                                .map(|o| o.to_string())
+                                .unwrap_or_else(|| {
+                                    result
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "No output".to_string())
+                                });
+                            tracer.queue_tool_execution_log(
+                                span.trace_id(),
+                                span.span_id(),
+                                &tool_use.name,
+                                &tool_input,
+                                &tool_output,
+                            );
+                        }
+                    }
+
+                    // Clean up span tracking
+                    self.active_spans.remove(&tool_span_id);
                 }
 
-                // Clean up span tracking
-                self.active_spans.remove(&tool_span_id);
-            }
+                // Record performance metrics
+                self.performance_logger.log_tool_performance(
+                    &result.tool_name,
+                    result.duration,
+                    result.success,
+                );
 
-            // Record performance metrics
-            self.performance_logger.log_tool_performance(
-                &result.tool_name,
-                result.duration,
-                result.success,
-            );
+                // Emit ToolComplete callback
+                if let Some(ref callback) = self.callback_handler {
+                    let event = CallbackEvent::ToolComplete {
+                        tool_name: result.tool_name.clone(),
+                        tool_use_id: result.tool_use_id.clone(),
+                        output: result.output.clone(),
+                        error: result.error.clone(),
+                        duration: result.duration,
+                    };
+                    if let Err(e) = callback.handle_event(event).await {
+                        tracing::warn!("Callback error during ToolComplete: {}", e);
+                    }
+                }
 
-            // Emit ToolComplete callback
-            if let Some(ref callback) = self.callback_handler {
-                let event = CallbackEvent::ToolComplete {
+                // Record tool execution metrics
+                let tool_metric = ToolExecutionMetric {
                     tool_name: result.tool_name.clone(),
-                    tool_use_id: result.tool_use_id.clone(),
-                    output: result.output.clone(),
-                    error: result.error.clone(),
+                    tool_use_id: Some(result.tool_use_id.clone()),
                     duration: result.duration,
+                    success: result.success,
+                    error: result.error.clone(),
+                    trace_id: None, // Would be filled by telemetry
+                    span_id: None,  // Would be filled by telemetry
+                    start_time: Utc::now(),
+                    input_size_bytes: Some(tool_use.input.to_string().len()),
+                    output_size_bytes: result.output.as_ref().map(|o| o.to_string().len()),
                 };
-                if let Err(e) = callback.handle_event(event).await {
-                    tracing::warn!("Callback error during ToolComplete: {}", e);
-                }
-            }
-            
-            // Record tool execution metrics
-            let tool_metric = ToolExecutionMetric {
-                tool_name: result.tool_name.clone(),
-                tool_use_id: Some(result.tool_use_id.clone()),
-                duration: result.duration,
-                success: result.success,
-                error: result.error.clone(),
-                trace_id: None, // Would be filled by telemetry
-                span_id: None,  // Would be filled by telemetry
-                start_time: Utc::now(),
-                input_size_bytes: Some(tool_use.input.to_string().len()),
-                output_size_bytes: result.output.as_ref().map(|o| o.to_string().len()),
-            };
 
-            self.metrics.add_tool_execution(tool_metric);
-            results.push(result);
+                self.metrics.add_tool_execution(tool_metric);
+                results.push(result);
             }
         }
 
@@ -1886,18 +2219,22 @@ impl EventLoop {
         _tool_config: &crate::types::tools::ToolConfig,
     ) -> Result<crate::llm::traits::ChatResponse> {
         let chat_start = Instant::now();
-        
+
         // Mark that streaming is not active
         self.stream_was_active = false;
         self.stream_completion_time = None;
-        
+
         debug!("🌐 Using non-streaming path, making LLM provider API call");
-        
+
         // Convert tool registry to LLM tool format
         let llm_tools = self.tool_registry.to_llm_tools().await;
-        debug!("🔧 Converted {} tools from registry for LLM provider", llm_tools.len());
-        
-        let response = match self.agent
+        debug!(
+            "🔧 Converted {} tools from registry for LLM provider",
+            llm_tools.len()
+        );
+
+        let response = match self
+            .agent
             .provider()
             .chat_with_tools(
                 self.agent.model().model_id(),
@@ -1905,23 +2242,30 @@ impl EventLoop {
                 &llm_tools,
                 &crate::llm::traits::ChatConfig::default(),
             )
-            .await {
-                Ok(resp) => {
-                    debug!("✅ LLM provider call succeeded with response: '{}'", 
-                            resp.content);
-                    resp
-                }
-                Err(e) => {
-                    debug!("❌ LLM provider call failed: {}", e);
-                    return Err(crate::StoodError::model_error(format!("LLM provider error: {}", e)));
-                }
-            };
+            .await
+        {
+            Ok(resp) => {
+                debug!(
+                    "✅ LLM provider call succeeded with response: '{}'",
+                    resp.content
+                );
+                resp
+            }
+            Err(e) => {
+                debug!("❌ LLM provider call failed: {}", e);
+                return Err(crate::StoodError::model_error(format!(
+                    "LLM provider error: {}",
+                    e
+                )));
+            }
+        };
         let chat_duration = chat_start.elapsed();
-        
+
         if chat_duration > Duration::from_millis(2000) {
-            self.performance_tracer.record_waiting("llm_provider_api_call", chat_duration);
+            self.performance_tracer
+                .record_waiting("llm_provider_api_call", chat_duration);
         }
-        
+
         Ok(response)
     }
 
@@ -1931,7 +2275,7 @@ impl EventLoop {
         _tool_config: &crate::types::tools::ToolConfig,
     ) -> Result<crate::llm::traits::ChatResponse> {
         tracing::info!("🔧🌊 Starting real LLM provider streaming execution with tools");
-        
+
         // Mark that streaming is active
         self.stream_was_active = true;
         self.stream_completion_time = None;
@@ -1939,47 +2283,101 @@ impl EventLoop {
         // TRACE MODE: Print full conversation state before making the request
         if tracing::level_enabled!(tracing::Level::TRACE) {
             let messages = self.agent.conversation().messages();
-            tracing::trace!("📋 TRACE: Full conversation state before streaming request ({} messages):", messages.len());
-            tracing::trace!("📋 TRACE: ==================== CONVERSATION THREAD ====================");
-            
+            tracing::trace!(
+                "📋 TRACE: Full conversation state before streaming request ({} messages):",
+                messages.len()
+            );
+            tracing::trace!(
+                "📋 TRACE: ==================== CONVERSATION THREAD ===================="
+            );
+
             for (i, message) in messages.iter().enumerate() {
                 tracing::trace!("📋 TRACE: Message #{}: Role: {:?}", i + 1, message.role);
-                tracing::trace!("📋 TRACE: Message #{}: Timestamp: {:?}", i + 1, message.timestamp);
-                tracing::trace!("📋 TRACE: Message #{}: Content blocks ({})", i + 1, message.content.len());
-                
+                tracing::trace!(
+                    "📋 TRACE: Message #{}: Timestamp: {:?}",
+                    i + 1,
+                    message.timestamp
+                );
+                tracing::trace!(
+                    "📋 TRACE: Message #{}: Content blocks ({})",
+                    i + 1,
+                    message.content.len()
+                );
+
                 for (j, block) in message.content.iter().enumerate() {
                     match block {
                         crate::types::ContentBlock::Text { text } => {
                             tracing::trace!("📋 TRACE:   Block #{}: TEXT: {}", j + 1, text);
                         }
                         crate::types::ContentBlock::ToolUse { id, name, input } => {
-                            tracing::trace!("📋 TRACE:   Block #{}: TOOL_USE: {} ({})", j + 1, name, id);
-                            tracing::trace!("📋 TRACE:   Block #{}: TOOL_INPUT: {}", j + 1, serde_json::to_string_pretty(input).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                            tracing::trace!(
+                                "📋 TRACE:   Block #{}: TOOL_USE: {} ({})",
+                                j + 1,
+                                name,
+                                id
+                            );
+                            tracing::trace!(
+                                "📋 TRACE:   Block #{}: TOOL_INPUT: {}",
+                                j + 1,
+                                serde_json::to_string_pretty(input)
+                                    .unwrap_or_else(|_| "Invalid JSON".to_string())
+                            );
                         }
-                        crate::types::ContentBlock::ToolResult { tool_use_id, content, is_error } => {
-                            tracing::trace!("📋 TRACE:   Block #{}: TOOL_RESULT: {} (error: {})", j + 1, tool_use_id, is_error);
-                            tracing::trace!("📋 TRACE:   Block #{}: TOOL_OUTPUT: {}", j + 1, content.to_display_string());
+                        crate::types::ContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        } => {
+                            tracing::trace!(
+                                "📋 TRACE:   Block #{}: TOOL_RESULT: {} (error: {})",
+                                j + 1,
+                                tool_use_id,
+                                is_error
+                            );
+                            tracing::trace!(
+                                "📋 TRACE:   Block #{}: TOOL_OUTPUT: {}",
+                                j + 1,
+                                content.to_display_string()
+                            );
                         }
                         _ => {
                             tracing::trace!("📋 TRACE:   Block #{}: OTHER: {:?}", j + 1, block);
                         }
                     }
                 }
-                tracing::trace!("📋 TRACE: --------------------------------------------------------");
+                tracing::trace!(
+                    "📋 TRACE: --------------------------------------------------------"
+                );
             }
             tracing::trace!("📋 TRACE: ==================== END CONVERSATION ====================");
         }
 
         // Convert tool registry to LLM tool format
         let llm_tools = self.tool_registry.to_llm_tools().await;
-        debug!("🔧 Converted {} tools from registry for LLM provider streaming", llm_tools.len());
+        debug!(
+            "🔧 Converted {} tools from registry for LLM provider streaming",
+            llm_tools.len()
+        );
 
         // TRACE MODE: Print available tools
         if tracing::level_enabled!(tracing::Level::TRACE) {
-            tracing::trace!("📋 TRACE: Available tools for streaming request ({} tools):", llm_tools.len());
+            tracing::trace!(
+                "📋 TRACE: Available tools for streaming request ({} tools):",
+                llm_tools.len()
+            );
             for (i, tool) in llm_tools.iter().enumerate() {
-                tracing::trace!("📋 TRACE: Tool #{}: {} - {}", i + 1, tool.name, tool.description);
-                tracing::trace!("📋 TRACE: Tool #{}: Schema: {}", i + 1, serde_json::to_string_pretty(&tool.input_schema).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                tracing::trace!(
+                    "📋 TRACE: Tool #{}: {} - {}",
+                    i + 1,
+                    tool.name,
+                    tool.description
+                );
+                tracing::trace!(
+                    "📋 TRACE: Tool #{}: Schema: {}",
+                    i + 1,
+                    serde_json::to_string_pretty(&tool.input_schema)
+                        .unwrap_or_else(|_| "Invalid JSON".to_string())
+                );
             }
         }
 
@@ -1998,7 +2396,10 @@ impl EventLoop {
                 .map_err(|e| crate::StoodError::model_error(format!("Streaming error: {}", e)))?
         } else {
             // Tools available, use streaming with tools
-            tracing::info!("🔧🌊 Using streaming with tools ({} tools available)", llm_tools.len());
+            tracing::info!(
+                "🔧🌊 Using streaming with tools ({} tools available)",
+                llm_tools.len()
+            );
             self.agent
                 .provider()
                 .chat_streaming_with_tools(
@@ -2008,37 +2409,60 @@ impl EventLoop {
                     &crate::llm::traits::ChatConfig::default(),
                 )
                 .await
-                .map_err(|e| crate::StoodError::model_error(format!("Streaming with tools error: {}", e)))?
+                .map_err(|e| {
+                    crate::StoodError::model_error(format!("Streaming with tools error: {}", e))
+                })?
         };
 
         // Initialize for collecting streaming content and tool calls using universal content block pattern
         let mut content_parts = Vec::new();
         let mut final_response: Option<crate::llm::traits::ChatResponse> = None;
-        let mut current_tool_calls: std::collections::HashMap<String, crate::llm::traits::ToolCall> = std::collections::HashMap::new();
-        let mut current_tool_inputs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        let mut active_content_blocks: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+        let mut current_tool_calls: std::collections::HashMap<
+            String,
+            crate::llm::traits::ToolCall,
+        > = std::collections::HashMap::new();
+        let mut current_tool_inputs: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut active_content_blocks: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
         let mut stream_usage: Option<crate::llm::traits::Usage> = None;
 
-        tracing::info!("🎯 Processing real-time streaming events with universal content block pattern");
+        tracing::info!(
+            "🎯 Processing real-time streaming events with universal content block pattern"
+        );
 
         // Process streaming events as they arrive using universal content block pattern
         use futures::StreamExt;
         let mut received_event_count = 0;
         while let Some(stream_event) = stream_receiver.next().await {
             received_event_count += 1;
-            tracing::debug!("🎯 Event loop received stream event #{}: {:?}", 
+            tracing::debug!(
+                "🎯 Event loop received stream event #{}: {:?}",
                 received_event_count,
                 match &stream_event {
-                    crate::llm::traits::StreamEvent::ContentBlockStart { block_type, .. } => format!("ContentBlockStart({:?})", block_type),
+                    crate::llm::traits::StreamEvent::ContentBlockStart { block_type, .. } =>
+                        format!("ContentBlockStart({:?})", block_type),
                     crate::llm::traits::StreamEvent::ContentBlockDelta { delta, .. } => {
                         match delta {
-                            crate::llm::traits::ContentBlockDelta::Text { text } => format!("ContentBlockDelta::Text('{}')", text),
-                            crate::llm::traits::ContentBlockDelta::ToolUse { tool_call_id, input_delta } => format!("ContentBlockDelta::ToolUse({}:'{}')", tool_call_id, input_delta),
-                            crate::llm::traits::ContentBlockDelta::Thinking { reasoning_delta } => format!("ContentBlockDelta::Thinking('{}')", reasoning_delta),
+                            crate::llm::traits::ContentBlockDelta::Text { text } => {
+                                format!("ContentBlockDelta::Text('{}')", text)
+                            }
+                            crate::llm::traits::ContentBlockDelta::ToolUse {
+                                tool_call_id,
+                                input_delta,
+                            } => format!(
+                                "ContentBlockDelta::ToolUse({}:'{}')",
+                                tool_call_id, input_delta
+                            ),
+                            crate::llm::traits::ContentBlockDelta::Thinking { reasoning_delta } => {
+                                format!("ContentBlockDelta::Thinking('{}')", reasoning_delta)
+                            }
                         }
-                    },
-                    crate::llm::traits::StreamEvent::ContentBlockStop { .. } => "ContentBlockStop".to_string(),
-                    crate::llm::traits::StreamEvent::MessageStop { .. } => "MessageStop".to_string(),
+                    }
+                    crate::llm::traits::StreamEvent::ContentBlockStop { .. } =>
+                        "ContentBlockStop".to_string(),
+                    crate::llm::traits::StreamEvent::MessageStop { .. } =>
+                        "MessageStop".to_string(),
                     crate::llm::traits::StreamEvent::Error { error } => format!("Error({})", error),
                     _ => "Other".to_string(),
                 }
@@ -2046,9 +2470,12 @@ impl EventLoop {
 
             // Process stream events using universal content block pattern (like Python reference)
             match &stream_event {
-                crate::llm::traits::StreamEvent::ContentBlockStart { block_type, block_index } => {
+                crate::llm::traits::StreamEvent::ContentBlockStart {
+                    block_type,
+                    block_index,
+                } => {
                     tracing::debug!("🏁 Content block {} start: {:?}", block_index, block_type);
-                    
+
                     match block_type {
                         crate::llm::traits::ContentBlockType::ToolUse => {
                             // Initialize tool accumulation for this block
@@ -2067,9 +2494,13 @@ impl EventLoop {
                 crate::llm::traits::StreamEvent::ContentBlockDelta { delta, block_index } => {
                     match delta {
                         crate::llm::traits::ContentBlockDelta::Text { text } => {
-                            tracing::debug!("🎯 Adding text delta: '{}' (block {})", text, block_index);
+                            tracing::debug!(
+                                "🎯 Adding text delta: '{}' (block {})",
+                                text,
+                                block_index
+                            );
                             content_parts.push(text.clone());
-                            
+
                             // Emit callback events for real-time updates if callback exists
                             if let Some(ref callback) = self.callback_handler {
                                 let event = CallbackEvent::ContentDelta {
@@ -2078,16 +2509,30 @@ impl EventLoop {
                                     reasoning: false,
                                 };
                                 if let Err(e) = callback.handle_event(event).await {
-                                    tracing::warn!("Callback error during real ContentDelta: {}", e);
+                                    tracing::warn!(
+                                        "Callback error during real ContentDelta: {}",
+                                        e
+                                    );
                                 }
                             }
                         }
-                        crate::llm::traits::ContentBlockDelta::ToolUse { tool_call_id, input_delta } => {
-                            tracing::debug!("🔧 Tool call delta for {}: '{}' (block {})", tool_call_id, input_delta, block_index);
-                            
+                        crate::llm::traits::ContentBlockDelta::ToolUse {
+                            tool_call_id,
+                            input_delta,
+                        } => {
+                            tracing::debug!(
+                                "🔧 Tool call delta for {}: '{}' (block {})",
+                                tool_call_id,
+                                input_delta,
+                                block_index
+                            );
+
                             // UNIVERSAL PATTERN: String accumulation during deltas
-                            current_tool_inputs.entry(tool_call_id.clone()).or_insert_with(String::new).push_str(input_delta);
-                            
+                            current_tool_inputs
+                                .entry(tool_call_id.clone())
+                                .or_default()
+                                .push_str(input_delta);
+
                             // Create or update tool call info
                             if !current_tool_calls.contains_key(tool_call_id) {
                                 // For LM Studio, extract tool name from tool_call_id pattern
@@ -2098,14 +2543,21 @@ impl EventLoop {
                                 } else {
                                     tool_call_id.clone() // Use ID as name fallback
                                 };
-                                
-                                tracing::debug!("🔧 Creating new tool call entry: {} -> {}", tool_call_id, tool_name);
-                                current_tool_calls.insert(tool_call_id.clone(), crate::llm::traits::ToolCall {
-                                    id: tool_call_id.clone(),
-                                    name: tool_name.clone(),
-                                    input: serde_json::Value::Null,
-                                });
-                                
+
+                                tracing::debug!(
+                                    "🔧 Creating new tool call entry: {} -> {}",
+                                    tool_call_id,
+                                    tool_name
+                                );
+                                current_tool_calls.insert(
+                                    tool_call_id.clone(),
+                                    crate::llm::traits::ToolCall {
+                                        id: tool_call_id.clone(),
+                                        name: tool_name.clone(),
+                                        input: serde_json::Value::Null,
+                                    },
+                                );
+
                                 // Emit tool start callback
                                 if let Some(ref callback) = self.callback_handler {
                                     let event = CallbackEvent::ToolStart {
@@ -2114,16 +2566,29 @@ impl EventLoop {
                                         input: serde_json::Value::String(input_delta.clone()),
                                     };
                                     if let Err(e) = callback.handle_event(event).await {
-                                        tracing::warn!("Callback error during streaming ToolStart: {}", e);
+                                        tracing::warn!(
+                                            "Callback error during streaming ToolStart: {}",
+                                            e
+                                        );
                                     }
                                 }
                             }
-                            
-                            tracing::trace!("🔧 Tool {} input now: '{}'", tool_call_id, current_tool_inputs.get(tool_call_id).unwrap_or(&String::new()));
+
+                            tracing::trace!(
+                                "🔧 Tool {} input now: '{}'",
+                                tool_call_id,
+                                current_tool_inputs
+                                    .get(tool_call_id)
+                                    .unwrap_or(&String::new())
+                            );
                         }
                         crate::llm::traits::ContentBlockDelta::Thinking { reasoning_delta } => {
-                            tracing::debug!("🤔 Thinking delta: '{}' (block {})", reasoning_delta, block_index);
-                            
+                            tracing::debug!(
+                                "🤔 Thinking delta: '{}' (block {})",
+                                reasoning_delta,
+                                block_index
+                            );
+
                             // Handle thinking deltas - emit callback
                             if let Some(ref callback) = self.callback_handler {
                                 let event = CallbackEvent::ContentDelta {
@@ -2139,14 +2604,19 @@ impl EventLoop {
                     }
                 }
                 crate::llm::traits::StreamEvent::ContentBlockStop { block_index } => {
-                    tracing::debug!("🏁 Content block {} stop - parsing accumulated content", block_index);
-                    
+                    tracing::debug!(
+                        "🏁 Content block {} stop - parsing accumulated content",
+                        block_index
+                    );
+
                     // UNIVERSAL PATTERN: JSON parsing happens at ContentBlockStop (like Python reference)
                     if let Some(block_type) = active_content_blocks.get(block_index) {
                         if block_type == "tool" {
                             // Find and finalize all tool calls for this block
                             for (tool_id, accumulated_input) in current_tool_inputs.iter() {
-                                if let Some(mut tool_call) = current_tool_calls.get(tool_id).cloned() {
+                                if let Some(mut tool_call) =
+                                    current_tool_calls.get(tool_id).cloned()
+                                {
                                     // CRITICAL: Parse JSON here like Python reference implementation
                                     let parsed_input = if accumulated_input.is_empty() {
                                         serde_json::Value::Object(serde_json::Map::new())
@@ -2157,45 +2627,56 @@ impl EventLoop {
                                                 parsed
                                             }
                                             Err(e) => {
-                                                tracing::error!("🔧 Failed to parse tool {} input as JSON: {} (input: '{}')", 
+                                                tracing::error!("🔧 Failed to parse tool {} input as JSON: {} (input: '{}')",
                                                     tool_id, e, accumulated_input);
                                                 // Fallback to empty object like Python reference
                                                 serde_json::Value::Object(serde_json::Map::new())
                                             }
                                         }
                                     };
-                                    
+
                                     tool_call.input = parsed_input;
                                     current_tool_calls.insert(tool_id.clone(), tool_call);
-                                    tracing::debug!("🔧 Finalized tool call at ContentBlockStop: {} with input: {}", 
+                                    tracing::debug!("🔧 Finalized tool call at ContentBlockStop: {} with input: {}",
                                         tool_id, accumulated_input);
                                 }
                             }
                         }
                     }
-                    
+
                     active_content_blocks.remove(block_index);
                 }
                 crate::llm::traits::StreamEvent::MessageStop { stop_reason } => {
                     tracing::debug!("✅ Message completed with stop reason: {:?}", stop_reason);
-                    
+
                     // Record stream completion time for evaluation delay
                     self.stream_completion_time = Some(std::time::Instant::now());
-                    
+
                     // Build final response from collected content
                     let content = content_parts.join("");
-                    tracing::info!("🎯 Final streaming content assembled: '{}' (from {} parts)", 
-                        content, content_parts.len());
-                    
+                    tracing::info!(
+                        "🎯 Final streaming content assembled: '{}' (from {} parts)",
+                        content,
+                        content_parts.len()
+                    );
+
                     // Extract finalized tool calls
-                    let final_tool_calls: Vec<crate::llm::traits::ToolCall> = current_tool_calls.values().cloned().collect();
-                    
-                    tracing::info!("🔧 Extracted {} tool calls from universal content block streaming", final_tool_calls.len());
+                    let final_tool_calls: Vec<crate::llm::traits::ToolCall> =
+                        current_tool_calls.values().cloned().collect();
+
+                    tracing::info!(
+                        "🔧 Extracted {} tool calls from universal content block streaming",
+                        final_tool_calls.len()
+                    );
                     for (i, tool_call) in final_tool_calls.iter().enumerate() {
-                        tracing::debug!("🔧 Final tool call {}: {} with input: {}", 
-                            i + 1, tool_call.name, serde_json::to_string(&tool_call.input).unwrap_or_default());
+                        tracing::debug!(
+                            "🔧 Final tool call {}: {} with input: {}",
+                            i + 1,
+                            tool_call.name,
+                            serde_json::to_string(&tool_call.input).unwrap_or_default()
+                        );
                     }
-                    
+
                     final_response = Some(crate::llm::traits::ChatResponse {
                         content: content.clone(),
                         tool_calls: final_tool_calls.clone(),
@@ -2208,15 +2689,35 @@ impl EventLoop {
                     if tracing::level_enabled!(tracing::Level::TRACE) {
                         tracing::trace!("📋 TRACE: ==================== STREAMING RESPONSE ====================");
                         tracing::trace!("📋 TRACE: Final response content: '{}'", content);
-                        tracing::trace!("📋 TRACE: Tool calls in response: {}", final_tool_calls.len());
+                        tracing::trace!(
+                            "📋 TRACE: Tool calls in response: {}",
+                            final_tool_calls.len()
+                        );
                         for (i, tool_call) in final_tool_calls.iter().enumerate() {
-                            tracing::trace!("📋 TRACE: Tool call #{}: {} ({})", i + 1, tool_call.name, tool_call.id);
-                            tracing::trace!("📋 TRACE: Tool call #{}: Input: {}", i + 1, serde_json::to_string_pretty(&tool_call.input).unwrap_or_else(|_| "Invalid JSON".to_string()));
+                            tracing::trace!(
+                                "📋 TRACE: Tool call #{}: {} ({})",
+                                i + 1,
+                                tool_call.name,
+                                tool_call.id
+                            );
+                            tracing::trace!(
+                                "📋 TRACE: Tool call #{}: Input: {}",
+                                i + 1,
+                                serde_json::to_string_pretty(&tool_call.input)
+                                    .unwrap_or_else(|_| "Invalid JSON".to_string())
+                            );
                         }
                         if let Some(ref usage) = stream_usage {
-                            tracing::trace!("📋 TRACE: Token usage: {} in, {} out, {} total", usage.input_tokens, usage.output_tokens, usage.total_tokens);
+                            tracing::trace!(
+                                "📋 TRACE: Token usage: {} in, {} out, {} total",
+                                usage.input_tokens,
+                                usage.output_tokens,
+                                usage.total_tokens
+                            );
                         }
-                        tracing::trace!("📋 TRACE: ==================== END RESPONSE ====================");
+                        tracing::trace!(
+                            "📋 TRACE: ==================== END RESPONSE ===================="
+                        );
                     }
 
                     break;
@@ -2227,14 +2728,20 @@ impl EventLoop {
                 }
                 crate::llm::traits::StreamEvent::Error { error } => {
                     tracing::error!("❌ Stream error: {}", error);
-                    return Err(crate::StoodError::model_error(format!("Stream error: {}", error)));
+                    return Err(crate::StoodError::model_error(format!(
+                        "Stream error: {}",
+                        error
+                    )));
                 }
-                
+
                 // Handle legacy events for backward compatibility
                 crate::llm::traits::StreamEvent::ContentDelta { delta, .. } => {
-                    tracing::debug!("🎯 Legacy ContentDelta: '{}' - converting to universal pattern", delta);
+                    tracing::debug!(
+                        "🎯 Legacy ContentDelta: '{}' - converting to universal pattern",
+                        delta
+                    );
                     content_parts.push(delta.clone());
-                    
+
                     if let Some(ref callback) = self.callback_handler {
                         let event = CallbackEvent::ContentDelta {
                             delta: delta.clone(),
@@ -2247,21 +2754,41 @@ impl EventLoop {
                     }
                 }
                 crate::llm::traits::StreamEvent::ToolCallStart { tool_call } => {
-                    tracing::debug!("🔧 Legacy ToolCallStart: {} ({}) - converting to universal pattern", tool_call.name, tool_call.id);
+                    tracing::debug!(
+                        "🔧 Legacy ToolCallStart: {} ({}) - converting to universal pattern",
+                        tool_call.name,
+                        tool_call.id
+                    );
                     current_tool_calls.insert(tool_call.id.clone(), tool_call.clone());
                     current_tool_inputs.insert(tool_call.id.clone(), String::new());
                 }
-                crate::llm::traits::StreamEvent::ToolCallDelta { tool_call_id, delta } => {
-                    tracing::debug!("🔧 Legacy ToolCallDelta for {}: '{}' - converting to universal pattern", tool_call_id, delta);
-                    current_tool_inputs.entry(tool_call_id.clone()).or_insert_with(String::new).push_str(delta);
-                    
+                crate::llm::traits::StreamEvent::ToolCallDelta {
+                    tool_call_id,
+                    delta,
+                } => {
+                    tracing::debug!(
+                        "🔧 Legacy ToolCallDelta for {}: '{}' - converting to universal pattern",
+                        tool_call_id,
+                        delta
+                    );
+                    current_tool_inputs
+                        .entry(tool_call_id.clone())
+                        .or_default()
+                        .push_str(delta);
+
                     // For Nova, the delta might contain the complete JSON input
                     // Try to parse it and update the tool call if successful
                     if let Some(tool_call) = current_tool_calls.get_mut(tool_call_id) {
                         if let Some(accumulated) = current_tool_inputs.get(tool_call_id) {
                             if !accumulated.is_empty() {
-                                if let Ok(parsed_input) = serde_json::from_str::<serde_json::Value>(accumulated) {
-                                    tracing::debug!("🔧 Successfully parsed tool input for {}: {}", tool_call_id, accumulated);
+                                if let Ok(parsed_input) =
+                                    serde_json::from_str::<serde_json::Value>(accumulated)
+                                {
+                                    tracing::debug!(
+                                        "🔧 Successfully parsed tool input for {}: {}",
+                                        tool_call_id,
+                                        accumulated
+                                    );
                                     tool_call.input = parsed_input;
                                 }
                             }
@@ -2269,12 +2796,16 @@ impl EventLoop {
                     }
                 }
                 crate::llm::traits::StreamEvent::Done { usage } => {
-                    tracing::debug!("✅ Legacy Done event with usage: {:?} - converting to MessageStop", usage);
+                    tracing::debug!(
+                        "✅ Legacy Done event with usage: {:?} - converting to MessageStop",
+                        usage
+                    );
                     stream_usage = usage.clone();
-                    
+
                     let content = content_parts.join("");
-                    let final_tool_calls: Vec<crate::llm::traits::ToolCall> = current_tool_calls.values().cloned().collect();
-                    
+                    let final_tool_calls: Vec<crate::llm::traits::ToolCall> =
+                        current_tool_calls.values().cloned().collect();
+
                     final_response = Some(crate::llm::traits::ChatResponse {
                         content,
                         tool_calls: final_tool_calls,
@@ -2293,9 +2824,9 @@ impl EventLoop {
         // Build final response from collected content if not already set
         if final_response.is_none() {
             let content = content_parts.join("");
-            tracing::warn!("🎯 Building fallback response from {} content parts (no Done event received): '{}'", 
+            tracing::warn!("🎯 Building fallback response from {} content parts (no Done event received): '{}'",
                 content_parts.len(), content);
-            
+
             // Build fallback tool calls from accumulated data
             let mut fallback_tool_calls = Vec::new();
             for (tool_id, mut tool_call) in current_tool_calls {
@@ -2306,8 +2837,9 @@ impl EventLoop {
                         let parsed_input = if accumulated_input.is_empty() {
                             serde_json::Value::Object(serde_json::Map::new())
                         } else {
-                            serde_json::from_str(accumulated_input)
-                                .unwrap_or_else(|_| serde_json::json!({"raw_input": accumulated_input}))
+                            serde_json::from_str(accumulated_input).unwrap_or_else(
+                                |_| serde_json::json!({"raw_input": accumulated_input}),
+                            )
                         };
                         tool_call.input = parsed_input;
                     } else {
@@ -2317,9 +2849,12 @@ impl EventLoop {
                 }
                 fallback_tool_calls.push(tool_call);
             }
-            
-            tracing::warn!("🔧 Fallback response includes {} tool calls", fallback_tool_calls.len());
-            
+
+            tracing::warn!(
+                "🔧 Fallback response includes {} tool calls",
+                fallback_tool_calls.len()
+            );
+
             final_response = Some(crate::llm::traits::ChatResponse {
                 content,
                 tool_calls: fallback_tool_calls,
@@ -2328,23 +2863,32 @@ impl EventLoop {
                 metadata: std::collections::HashMap::new(),
             });
         }
-        
-        tracing::info!("🎯 Streaming execution completed, received {} events total", received_event_count);
-        
+
+        tracing::info!(
+            "🎯 Streaming execution completed, received {} events total",
+            received_event_count
+        );
+
         // Return the final response
         let response = final_response.ok_or_else(|| {
             crate::StoodError::model_error("No response received from streaming".to_string())
         })?;
-        
-        tracing::debug!("🔧 Streaming method returning response with {} tool calls", response.tool_calls.len());
+
+        tracing::debug!(
+            "🔧 Streaming method returning response with {} tool calls",
+            response.tool_calls.len()
+        );
         for (i, tool_call) in response.tool_calls.iter().enumerate() {
-            tracing::debug!("🔧 Returning tool call {}: {} with input: {}", 
-                i + 1, tool_call.name, serde_json::to_string(&tool_call.input).unwrap_or_default());
+            tracing::debug!(
+                "🔧 Returning tool call {}: {} with input: {}",
+                i + 1,
+                tool_call.name,
+                serde_json::to_string(&tool_call.input).unwrap_or_default()
+            );
         }
-        
+
         Ok(response)
     }
-
 
     /// Execute a streaming chat with real-time callbacks
     pub async fn execute_with_streaming<C>(
@@ -2438,7 +2982,6 @@ impl EventLoop {
     /// Get comprehensive telemetry metrics
     pub fn telemetry_metrics(&self) -> TelemetryMetrics {
         TelemetryMetrics {
-            
             active_spans: self.active_spans.len(),
             total_cycles: self.performance_logger.total_cycles,
             average_cycle_duration: self.performance_logger.average_cycle_time(),
@@ -2448,7 +2991,6 @@ impl EventLoop {
     }
 
     /// Clean up stale spans (for error recovery)
-    
     pub fn cleanup_stale_spans(&mut self, max_age: Duration) {
         let cutoff = Instant::now() - max_age;
         let initial_count = self.active_spans.len();
@@ -2472,40 +3014,49 @@ impl EventLoop {
         if !self.stream_was_active {
             return;
         }
-        
+
         // If we have a completion time, wait for a brief buffer to allow display to finish
         if let Some(completion_time) = self.stream_completion_time {
             let elapsed = completion_time.elapsed();
             const STREAM_BUFFER_MS: u64 = 100; // 100ms buffer to allow display to finish
-            
+
             if elapsed.as_millis() < STREAM_BUFFER_MS as u128 {
                 let remaining = std::time::Duration::from_millis(STREAM_BUFFER_MS) - elapsed;
-                tracing::debug!("⏳ Waiting {}ms for stream completion buffer", remaining.as_millis());
+                tracing::debug!(
+                    "⏳ Waiting {}ms for stream completion buffer",
+                    remaining.as_millis()
+                );
                 tokio::time::sleep(remaining).await;
             }
         }
     }
-    
+
     async fn evaluate_continuation(
         &mut self,
         current_response: &crate::llm::traits::ChatResponse,
         cycle_metrics: &CycleMetrics,
     ) -> Result<EvaluationResult> {
         let strategy = self.config.evaluation_strategy.clone();
-        
+
         // Create evaluation span as child of current cycle span
         let evaluation_span = if let Some(ref tracer) = self.tracer {
             let mut span = tracer.start_agent_span("evaluation");
             span.set_attribute("evaluation.strategy", strategy.name());
             span.set_attribute("evaluation.cycle_id", cycle_metrics.cycle_id.to_string());
-            span.set_attribute("evaluation.response_length", current_response.content.len() as i64);
+            span.set_attribute(
+                "evaluation.response_length",
+                current_response.content.len() as i64,
+            );
             Some(span)
         } else {
             None
         };
-        
-        tracing::info!("🔍 Evaluating continuation with strategy: {:?}", strategy.name());
-        
+
+        tracing::info!(
+            "🔍 Evaluating continuation with strategy: {:?}",
+            strategy.name()
+        );
+
         let evaluation_start = std::time::Instant::now();
         let result = match strategy {
             EvaluationStrategy::None => {
@@ -2513,43 +3064,69 @@ impl EventLoop {
                 // This happens when model returns tool calls or indicates more work needed
                 self.evaluate_model_driven(current_response).await
             }
-            EvaluationStrategy::TaskEvaluation { evaluation_prompt, max_iterations } => {
-                self.evaluate_task_evaluation(current_response, &evaluation_prompt, max_iterations).await
+            EvaluationStrategy::TaskEvaluation {
+                evaluation_prompt,
+                max_iterations,
+            } => {
+                self.evaluate_task_evaluation(current_response, &evaluation_prompt, max_iterations)
+                    .await
             }
-            EvaluationStrategy::AgentBased { mut evaluator_agent, evaluation_prompt } => {
-                self.evaluate_agent_based(current_response, &mut evaluator_agent, &evaluation_prompt).await
+            EvaluationStrategy::AgentBased {
+                mut evaluator_agent,
+                evaluation_prompt,
+            } => {
+                self.evaluate_agent_based(
+                    current_response,
+                    &mut evaluator_agent,
+                    &evaluation_prompt,
+                )
+                .await
             }
             EvaluationStrategy::MultiPerspective { perspectives } => {
-                self.evaluate_multi_perspective(current_response, &perspectives).await
+                self.evaluate_multi_perspective(current_response, &perspectives)
+                    .await
             }
         };
-        
+
         // Complete evaluation span with results
         let evaluation_duration = evaluation_start.elapsed();
         if let Some(mut span) = evaluation_span {
             match &result {
                 Ok(eval_result) => {
                     span.set_attribute("evaluation.decision", eval_result.decision);
-                    span.set_attribute("evaluation.duration_ms", evaluation_duration.as_millis() as i64);
-                    span.set_attribute("evaluation.has_additional_content", eval_result.response.is_some());
+                    span.set_attribute(
+                        "evaluation.duration_ms",
+                        evaluation_duration.as_millis() as i64,
+                    );
+                    span.set_attribute(
+                        "evaluation.has_additional_content",
+                        eval_result.response.is_some(),
+                    );
                     if let Some(ref content) = eval_result.response {
-                        span.set_attribute("evaluation.additional_content_length", content.len() as i64);
+                        span.set_attribute(
+                            "evaluation.additional_content_length",
+                            content.len() as i64,
+                        );
                     }
                     span.set_attribute("evaluation.status", "success");
                 }
                 Err(e) => {
                     span.set_attribute("evaluation.status", "error");
                     span.set_attribute("evaluation.error", e.to_string());
-                    span.set_attribute("evaluation.duration_ms", evaluation_duration.as_millis() as i64);
+                    span.set_attribute(
+                        "evaluation.duration_ms",
+                        evaluation_duration.as_millis() as i64,
+                    );
                 }
             }
         }
-        
-        tracing::info!("✅ Evaluation completed in {:?} with decision: {:?}", 
-            evaluation_duration, 
+
+        tracing::info!(
+            "✅ Evaluation completed in {:?} with decision: {:?}",
+            evaluation_duration,
             result.as_ref().map(|r| r.decision).unwrap_or(false)
         );
-        
+
         result
     }
 
@@ -2561,38 +3138,46 @@ impl EventLoop {
     ) -> Result<EvaluationResult> {
         use std::time::Instant;
         let start_time = Instant::now();
-        
-        tracing::info!("🔍 Model-driven strategy: stopping after one cycle (let model decide naturally)");
-        
+
+        tracing::info!(
+            "🔍 Model-driven strategy: stopping after one cycle (let model decide naturally)"
+        );
+
         // Trigger evaluation start callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
-                strategy: "model_driven".to_string(),
-                prompt: "No explicit evaluation - model decides naturally".to_string(),
-                cycle_number: self.metrics.cycles.len() as u32,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
+                    strategy: "model_driven".to_string(),
+                    prompt: "No explicit evaluation - model decides naturally".to_string(),
+                    cycle_number: self.metrics.cycles.len() as u32,
+                })
+                .await;
         }
-        
+
         // Model-driven: always stop after one cycle
         // The model will naturally continue if it wants to via tool calls in future requests
         let result = EvaluationResult {
             decision: false, // Always stop - let model decide naturally
             response: None,
-            reasoning: "Model-driven: stopping after one cycle, model decides continuation naturally".to_string(),
+            reasoning:
+                "Model-driven: stopping after one cycle, model decides continuation naturally"
+                    .to_string(),
         };
-        
+
         // Trigger evaluation complete callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
-                strategy: "model_driven".to_string(),
-                decision: result.decision,
-                reasoning: result.reasoning.clone(),
-                duration: start_time.elapsed(),
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
+                    strategy: "model_driven".to_string(),
+                    decision: result.decision,
+                    reasoning: result.reasoning.clone(),
+                    duration: start_time.elapsed(),
+                })
+                .await;
         }
-        
+
         tracing::info!("🤔 Model-driven: STOP (model decides continuation naturally)");
-        
+
         Ok(result)
     }
 
@@ -2605,21 +3190,23 @@ impl EventLoop {
     ) -> Result<EvaluationResult> {
         use std::time::Instant;
         let start_time = Instant::now();
-        
+
         tracing::info!("🔍 Evaluating continuation with task evaluation strategy");
-        
+
         // Trigger evaluation start callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
-                strategy: "task_evaluation".to_string(),
-                prompt: evaluation_prompt.to_string(),
-                cycle_number: self.metrics.cycles.len() as u32,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
+                    strategy: "task_evaluation".to_string(),
+                    prompt: evaluation_prompt.to_string(),
+                    cycle_number: self.metrics.cycles.len() as u32,
+                })
+                .await;
         }
-        
+
         // Create clean conversation summary for evaluation
         let conversation_summary = self.create_evaluation_summary();
-        
+
         // Create a task evaluation prompt with clean summary and current response
         let evaluation_question = format!(
             "{}\n\nConversation so far:\n{}\n\nCurrent response: \"{}\"\n\nEvaluate whether you should continue working on this task or if it's complete. Respond with JSON in this exact format:\n{{\n  \"decision\": \"CONTINUE\" or \"STOP\",\n  \"response\": \"Additional content to add if continuing (empty if stopping)\"\n}}\n\nIf you decide to CONTINUE, provide additional content in the 'response' field that will be added to the conversation to continue the task. If you decide to STOP, leave the 'response' field empty.",
@@ -2627,7 +3214,7 @@ impl EventLoop {
             conversation_summary,
             current_response.content
         );
-        
+
         // Create model span for evaluation LLM call
         let evaluation_model_span = if let Some(ref tracer) = self.tracer {
             let mut span = tracer.start_model_span("evaluation_llm_call");
@@ -2638,44 +3225,53 @@ impl EventLoop {
         } else {
             None
         };
-        
+
         // Use isolated evaluation context to avoid polluting main conversation
         let evaluation_response_content = if let Some(ref eval_ctx) = self.evaluation_context {
             eval_ctx.evaluate_with_prompt(&evaluation_question).await?
         } else {
-            return Err(StoodError::InvalidInput { 
-                message: "Evaluation context not available".to_string() 
+            return Err(StoodError::InvalidInput {
+                message: "Evaluation context not available".to_string(),
             });
         };
-        
+
         // Complete model span with response details
         if let Some(mut span) = evaluation_model_span {
-            span.set_attribute("evaluation.response_length", evaluation_response_content.len() as i64);
+            span.set_attribute(
+                "evaluation.response_length",
+                evaluation_response_content.len() as i64,
+            );
             span.set_attribute("evaluation.llm_status", "success");
         }
-        
-        let evaluation_result = EvaluationResult::parse_evaluation_response(&evaluation_response_content);
+
+        let evaluation_result =
+            EvaluationResult::parse_evaluation_response(&evaluation_response_content);
         let duration = start_time.elapsed();
-        
+
         tracing::info!(
             "🔍 Task evaluation result: {} (response: '{}')",
-            if evaluation_result.decision { "CONTINUE" } else { "STOP" },
+            if evaluation_result.decision {
+                "CONTINUE"
+            } else {
+                "STOP"
+            },
             evaluation_response_content.trim()
         );
-        
+
         // Trigger evaluation complete callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
-                strategy: "task_evaluation".to_string(),
-                decision: evaluation_result.decision,
-                reasoning: evaluation_result.reasoning.clone(),
-                duration,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
+                    strategy: "task_evaluation".to_string(),
+                    decision: evaluation_result.decision,
+                    reasoning: evaluation_result.reasoning.clone(),
+                    duration,
+                })
+                .await;
         }
-        
+
         Ok(evaluation_result)
     }
-
 
     /// Evaluate continuation using agent-based strategy
     async fn evaluate_agent_based(
@@ -2686,27 +3282,31 @@ impl EventLoop {
     ) -> Result<EvaluationResult> {
         use std::time::Instant;
         let start_time = Instant::now();
-        
+
         tracing::info!("🤖 Evaluating continuation with agent-based strategy");
-        
+
         // Trigger evaluation start callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
-                strategy: "agent_based".to_string(),
-                prompt: evaluation_prompt.to_string(),
-                cycle_number: self.metrics.cycles.len() as u32,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
+                    strategy: "agent_based".to_string(),
+                    prompt: evaluation_prompt.to_string(),
+                    cycle_number: self.metrics.cycles.len() as u32,
+                })
+                .await;
         }
-        
+
         // Get the original conversation history for context
         let original_conversation = self.agent.conversation().messages().clone();
-        
+
         // Build context from original conversation
         let mut context_parts = Vec::new();
         for message in &original_conversation.messages {
             match message.role {
                 crate::types::MessageRole::User => {
-                    let content = message.content.iter()
+                    let content = message
+                        .content
+                        .iter()
                         .filter_map(|block| match block {
                             crate::types::ContentBlock::Text { text } => Some(text.as_str()),
                             _ => None,
@@ -2716,7 +3316,9 @@ impl EventLoop {
                     context_parts.push(format!("User: {}", content));
                 }
                 crate::types::MessageRole::Assistant => {
-                    let content = message.content.iter()
+                    let content = message
+                        .content
+                        .iter()
                         .filter_map(|block| match block {
                             crate::types::ContentBlock::Text { text } => Some(text.as_str()),
                             _ => None,
@@ -2726,7 +3328,9 @@ impl EventLoop {
                     context_parts.push(format!("Assistant: {}", content));
                 }
                 crate::types::MessageRole::System => {
-                    let content = message.content.iter()
+                    let content = message
+                        .content
+                        .iter()
                         .filter_map(|block| match block {
                             crate::types::ContentBlock::Text { text } => Some(text.as_str()),
                             _ => None,
@@ -2738,36 +3342,42 @@ impl EventLoop {
             }
         }
         let conversation_context = context_parts.join("\n");
-        
+
         let agent_question = format!(
             "[INTERNAL EVALUATION - This is a private conversation for decision-making]\n\n{}\n\nConversation history:\n{}\n\nAgent's current response: \"{}\"\n\nBased on the full context, evaluate whether the agent should continue working. Respond with JSON in this exact format:\n{{\n  \"decision\": \"CONTINUE\" or \"STOP\",\n  \"response\": \"Additional content to add if continuing (empty if stopping)\"\n}}\n\nIf you decide the agent should CONTINUE, provide additional content in the 'response' field that will be added to the conversation to continue the task. If you decide to STOP, leave the 'response' field empty.",
             evaluation_prompt,
             conversation_context,
             current_response.content
         );
-        
+
         // Execute the evaluator agent (use Box::pin to avoid recursion issue)
         let agent_result = Box::pin(evaluator_agent.execute(agent_question)).await?;
-        
+
         let evaluation_result = EvaluationResult::parse_evaluation_response(&agent_result.response);
         let duration = start_time.elapsed();
-        
+
         tracing::info!(
             "🤖 Agent-based evaluation result: {} (evaluator response: '{}')",
-            if evaluation_result.decision { "CONTINUE" } else { "STOP" },
+            if evaluation_result.decision {
+                "CONTINUE"
+            } else {
+                "STOP"
+            },
             agent_result.response.trim()
         );
-        
+
         // Trigger evaluation complete callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
-                strategy: "agent_based".to_string(),
-                decision: evaluation_result.decision,
-                reasoning: evaluation_result.reasoning.clone(),
-                duration,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
+                    strategy: "agent_based".to_string(),
+                    decision: evaluation_result.decision,
+                    reasoning: evaluation_result.reasoning.clone(),
+                    duration,
+                })
+                .await;
         }
-        
+
         Ok(evaluation_result)
     }
 
@@ -2779,25 +3389,38 @@ impl EventLoop {
     ) -> Result<EvaluationResult> {
         use std::time::Instant;
         let start_time = Instant::now();
-        
-        tracing::info!("👥 Evaluating continuation with multi-perspective strategy ({} perspectives)", perspectives.len());
-        
+
+        tracing::info!(
+            "👥 Evaluating continuation with multi-perspective strategy ({} perspectives)",
+            perspectives.len()
+        );
+
         // Trigger evaluation start callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
-                strategy: "multi_perspective".to_string(),
-                prompt: format!("{} perspectives: {}", perspectives.len(), perspectives.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
-                cycle_number: self.metrics.cycles.len() as u32,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationStart {
+                    strategy: "multi_perspective".to_string(),
+                    prompt: format!(
+                        "{} perspectives: {}",
+                        perspectives.len(),
+                        perspectives
+                            .iter()
+                            .map(|p| p.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    cycle_number: self.metrics.cycles.len() as u32,
+                })
+                .await;
         }
-        
+
         let mut weighted_score = 0.0;
         let mut total_weight = 0.0;
         let mut perspective_details = Vec::new();
-        
+
         // Create clean conversation summary for evaluation
         let conversation_summary = self.create_evaluation_summary();
-        
+
         for perspective in perspectives {
             let perspective_question = format!(
                 "{}\n\nConversation so far:\n{}\n\nCurrent response: \"{}\"\n\nFrom this perspective, should we continue? Respond with 'CONTINUE' or 'STOP'.",
@@ -2805,70 +3428,86 @@ impl EventLoop {
                 conversation_summary,
                 current_response.content
             );
-            
+
             // Use isolated evaluation context to avoid polluting main conversation
             let perspective_response_content = if let Some(ref eval_ctx) = self.evaluation_context {
                 eval_ctx.evaluate_with_prompt(&perspective_question).await?
             } else {
-                return Err(StoodError::InvalidInput { 
-                    message: "Evaluation context not available".to_string() 
+                return Err(StoodError::InvalidInput {
+                    message: "Evaluation context not available".to_string(),
                 });
             };
-            
-            let perspective_continue = perspective_response_content.to_uppercase().contains("CONTINUE");
+
+            let perspective_continue = perspective_response_content
+                .to_uppercase()
+                .contains("CONTINUE");
             let perspective_score = if perspective_continue { 1.0 } else { 0.0 };
-            
+
             weighted_score += perspective_score * perspective.weight;
             total_weight += perspective.weight;
-            
+
             perspective_details.push(format!(
                 "{}: {} (weight: {:.2})",
                 perspective.name,
-                if perspective_continue { "CONTINUE" } else { "STOP" },
+                if perspective_continue {
+                    "CONTINUE"
+                } else {
+                    "STOP"
+                },
                 perspective.weight
             ));
-            
+
             tracing::info!(
                 "👥 Perspective '{}' (weight: {:.2}): {} (response: '{}')",
                 perspective.name,
                 perspective.weight,
-                if perspective_continue { "CONTINUE" } else { "STOP" },
+                if perspective_continue {
+                    "CONTINUE"
+                } else {
+                    "STOP"
+                },
                 perspective_response_content.trim()
             );
         }
-        
+
         let final_score = if total_weight > 0.0 {
             weighted_score / total_weight
         } else {
             0.0
         };
-        
+
         let should_continue = final_score > 0.5;
         let duration = start_time.elapsed();
-        
+
         tracing::info!(
             "👥 Multi-perspective result: {} (weighted score: {:.2})",
             if should_continue { "CONTINUE" } else { "STOP" },
             final_score
         );
-        
+
         // For multi-perspective, we don't generate additional content - it's a voting system
         let evaluation_result = EvaluationResult {
             decision: should_continue,
             response: None, // Multi-perspective doesn't generate additional content
-            reasoning: format!("Weighted score: {:.2}/1.0 - {}", final_score, perspective_details.join(", ")),
+            reasoning: format!(
+                "Weighted score: {:.2}/1.0 - {}",
+                final_score,
+                perspective_details.join(", ")
+            ),
         };
-        
+
         // Trigger evaluation complete callback
         if let Some(callback) = &self.callback_handler {
-            let _ = callback.handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
-                strategy: "multi_perspective".to_string(),
-                decision: evaluation_result.decision,
-                reasoning: evaluation_result.reasoning.clone(),
-                duration,
-            }).await;
+            let _ = callback
+                .handle_event(crate::agent::callbacks::CallbackEvent::EvaluationComplete {
+                    strategy: "multi_perspective".to_string(),
+                    decision: evaluation_result.decision,
+                    reasoning: evaluation_result.reasoning.clone(),
+                    duration,
+                })
+                .await;
         }
-        
+
         Ok(evaluation_result)
     }
 }
@@ -2928,16 +3567,20 @@ impl PerformanceLogger {
         }
     }
 
-    pub fn log_model_performance(&mut self, duration: Duration, token_usage: Option<&crate::types::TokenUsage>) {
+    pub fn log_model_performance(
+        &mut self,
+        duration: Duration,
+        token_usage: Option<&crate::types::TokenUsage>,
+    ) {
         self.model_invoke_times.push(duration);
-        
+
         // Track token usage for metrics analysis
         if let Some(tokens) = token_usage {
             self.total_input_tokens += tokens.input_tokens;
             self.total_output_tokens += tokens.output_tokens;
             self.model_input_tokens.push(tokens.input_tokens);
             self.model_output_tokens.push(tokens.output_tokens);
-            
+
             tracing::debug!(
                 duration_ms = duration.as_millis(),
                 avg_model_ms = self.average_model_time().as_millis(),
@@ -3001,40 +3644,41 @@ impl PerformanceLogger {
             self.model_invoke_times.iter().sum::<Duration>() / self.model_invoke_times.len() as u32
         }
     }
-    
+
     /// Get total input tokens for metrics analysis
     pub fn total_input_tokens(&self) -> u32 {
         self.total_input_tokens
     }
-    
+
     /// Get total output tokens for metrics analysis
     pub fn total_output_tokens(&self) -> u32 {
         self.total_output_tokens
     }
-    
+
     /// Get total tokens (input + output)
     pub fn total_tokens(&self) -> u32 {
         self.total_input_tokens + self.total_output_tokens
     }
-    
+
     /// Get average input tokens per model call
     pub fn average_input_tokens(&self) -> f64 {
         if self.model_input_tokens.is_empty() {
             0.0
         } else {
-            self.model_input_tokens.iter().sum::<u32>() as f64 / self.model_input_tokens.len() as f64
+            self.model_input_tokens.iter().sum::<u32>() as f64
+                / self.model_input_tokens.len() as f64
         }
     }
-    
+
     /// Get average output tokens per model call
     pub fn average_output_tokens(&self) -> f64 {
         if self.model_output_tokens.is_empty() {
             0.0
         } else {
-            self.model_output_tokens.iter().sum::<u32>() as f64 / self.model_output_tokens.len() as f64
+            self.model_output_tokens.iter().sum::<u32>() as f64
+                / self.model_output_tokens.len() as f64
         }
     }
-    
 
     fn average_tool_time(&self, tool_name: &str) -> Duration {
         if let Some(times) = self.tool_times.get(tool_name) {
@@ -3082,6 +3726,7 @@ pub struct StreamingMetrics {
 struct ToolResult {
     tool_use_id: String,
     tool_name: String,
+    input: Value,
     success: bool,
     output: Option<Value>,
     error: Option<String>,
@@ -3110,14 +3755,17 @@ struct EvaluationResult {
 impl EvaluationResult {
     /// Parse evaluation response from JSON or fallback to enhanced string matching
     fn parse_evaluation_response(response: &str) -> Self {
-        tracing::debug!("🔍 Parsing evaluation response: {}", response.chars().take(200).collect::<String>());
-        
+        tracing::debug!(
+            "🔍 Parsing evaluation response: {}",
+            response.chars().take(200).collect::<String>()
+        );
+
         // Strategy 1: Try direct JSON parsing
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(response) {
             tracing::debug!("✅ Direct JSON parsing successful");
             return Self::parse_json_object(&json, response);
         }
-        
+
         // Strategy 2: Try regex-based JSON extraction for mixed content
         if let Some(extracted_json) = Self::extract_json_from_mixed_content(response) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&extracted_json) {
@@ -3125,16 +3773,17 @@ impl EvaluationResult {
                 return Self::parse_json_object(&json, response);
             }
         }
-        
+
         // Strategy 3: Enhanced fallback with multiple pattern matching
         tracing::debug!("📝 JSON parsing failed, using enhanced string matching fallback");
         Self::parse_with_enhanced_fallback(response)
     }
-    
+
     /// Parse a valid JSON object into EvaluationResult
     fn parse_json_object(json: &serde_json::Value, original_response: &str) -> Self {
         // Handle decision field - support both string and boolean types
-        let decision = json.get("decision")
+        let decision = json
+            .get("decision")
             .and_then(|d| {
                 // Try as boolean first
                 if let Some(bool_val) = d.as_bool() {
@@ -3151,29 +3800,36 @@ impl EvaluationResult {
                 tracing::warn!("⚠️ No valid 'decision' field found in JSON, defaulting to false");
                 false
             });
-        
+
         // Handle response content with multiple field name options
-        let response_content = json.get("response")
+        let response_content = json
+            .get("response")
             .or_else(|| json.get("additional_content"))
             .or_else(|| json.get("content"))
             .or_else(|| json.get("message"))
             .and_then(|r| r.as_str())
             .map(|s| s.to_string())
             .filter(|s| !s.trim().is_empty());
-        
+
         if response_content.is_some() {
-            tracing::debug!("📝 Extracted response content: {}", 
-                response_content.as_ref().unwrap().chars().take(100).collect::<String>()
+            tracing::debug!(
+                "📝 Extracted response content: {}",
+                response_content
+                    .as_ref()
+                    .unwrap()
+                    .chars()
+                    .take(100)
+                    .collect::<String>()
             );
         }
-        
+
         Self {
             decision,
             response: response_content,
             reasoning: original_response.to_string(),
         }
     }
-    
+
     /// Extract JSON from mixed content using regex patterns
     fn extract_json_from_mixed_content(content: &str) -> Option<String> {
         // Pattern 1: JSON block wrapped in code fences
@@ -3186,7 +3842,7 @@ impl EvaluationResult {
                 }
             }
         }
-        
+
         // Pattern 2: JSON block wrapped in simple code fences
         if let Some(json_match) = content.find("```") {
             if let Some(end_match) = content[json_match + 3..].find("```") {
@@ -3198,63 +3854,67 @@ impl EvaluationResult {
                 }
             }
         }
-        
+
         // Pattern 3: Look for JSON object patterns
         if let Some(start) = content.find('{') {
             if let Some(end) = content.rfind('}') {
                 if start < end {
                     let potential_json = content[start..=end].trim();
                     // Quick validation - contains both decision and response-like fields
-                    if potential_json.contains("decision") && 
-                       (potential_json.contains("response") || potential_json.contains("content")) {
+                    if potential_json.contains("decision")
+                        && (potential_json.contains("response")
+                            || potential_json.contains("content"))
+                    {
                         return Some(potential_json.to_string());
                     }
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Enhanced fallback parsing with multiple pattern matching approaches
     fn parse_with_enhanced_fallback(response: &str) -> Self {
         let upper_response = response.to_uppercase();
-        
+
         // Enhanced decision detection with multiple patterns
-        let decision = 
+        let decision =
             // Explicit decision patterns
             upper_response.contains("DECISION: CONTINUE") ||
             upper_response.contains("DECISION: TRUE") ||
             upper_response.contains("CONTINUE: TRUE") ||
             upper_response.contains("SHOULD CONTINUE: TRUE") ||
             upper_response.contains("CONTINUE: YES") ||
-            
-            // Standalone decision patterns  
+
+            // Standalone decision patterns
             upper_response.contains("CONTINUE") ||
             upper_response.contains("KEEP GOING") ||
             upper_response.contains("NOT COMPLETE") ||
             upper_response.contains("NEEDS MORE") ||
             upper_response.contains("INSUFFICIENT") ||
-            
+
             // Negative patterns (things that suggest continuation needed)
             upper_response.contains("INCOMPLETE") ||
             upper_response.contains("MISSING") ||
             upper_response.contains("LACKING");
-        
+
         // Try to extract response content from fallback
         let response_content = Self::extract_response_from_fallback(response);
-        
-        tracing::debug!("🔄 Fallback parsing result: decision={}, has_content={}", 
-            decision, response_content.is_some()
+
+        tracing::debug!(
+            "🔄 Fallback parsing result: decision={}, has_content={}",
+            decision,
+            response_content.is_some()
         );
-        
+
         Self {
             decision,
             response: response_content,
             reasoning: response.to_string(),
         }
     }
-    
+
     /// Extract response content from non-JSON text
     fn extract_response_from_fallback(content: &str) -> Option<String> {
         // Look for common response indicators
@@ -3266,22 +3926,22 @@ impl EvaluationResult {
             "continue with:",
             "add:",
         ];
-        
+
         for pattern in &patterns {
             if let Some(start) = content.to_lowercase().find(pattern) {
                 let start_pos = start + pattern.len();
                 let remaining = content[start_pos..].trim();
-                
+
                 // Extract until next line break or end
                 let end_pos = remaining.find('\n').unwrap_or(remaining.len());
                 let extracted = remaining[..end_pos].trim();
-                
+
                 if !extracted.is_empty() && extracted.len() > 5 {
                     return Some(extracted.to_string());
                 }
             }
         }
-        
+
         None
     }
 }

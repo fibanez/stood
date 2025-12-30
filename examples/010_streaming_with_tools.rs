@@ -348,15 +348,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test cases designed to trigger the custom tool
     let test_prompts = vec![
         (
-            "System Performance", 
+            "System Performance",
             "I need you to analyze the current system performance. Please use the system analyzer tool with 'performance' analysis type to get detailed metrics about CPU, memory, and I/O."
         ),
         (
-            "Security Check", 
+            "Security Check",
             "Can you perform a security analysis of the current system? Use the system analyzer tool with 'security' analysis type to check the security posture."
         ),
         (
-            "Environment Status", 
+            "Environment Status",
             "Please analyze the development environment setup. Use the system analyzer tool with 'environment' analysis type to check what tools and configurations are available."
         ),
     ];
@@ -425,4 +425,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

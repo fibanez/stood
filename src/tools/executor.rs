@@ -127,10 +127,10 @@
 //!
 //! // Process results
 //! for (result, metrics) in results {
-//!     println!("Tool {}: {}", 
-//!              result.tool_use_id, 
+//!     println!("Tool {}: {}",
+//!              result.tool_use_id,
 //!              if result.success { "SUCCESS" } else { "FAILED" });
-//!              
+//!
 //!     if let Some(metrics) = metrics {
 //!         println!("  Duration: {:?}", metrics.duration);
 //!     }
@@ -180,7 +180,7 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let executor = ToolExecutor::default();
-//! 
+//!
 //! # struct FailingTool;
 //! # #[async_trait::async_trait]
 //! # impl Tool for FailingTool {
@@ -204,7 +204,7 @@
 //! if !result.success {
 //!     if let Some(error) = result.content.get("error") {
 //!         let error_msg = error.as_str().unwrap_or("Unknown error");
-//!         
+//!
 //!         if error_msg.contains("timed out") {
 //!             println!("Tool execution timed out - consider increasing timeout");
 //!         } else if error_msg.contains("validation failed") {
@@ -232,7 +232,7 @@
 //! Choose between different execution approaches:
 //!
 //! ## Legacy Strategy
-//! 
+//!
 //! Uses Tokio semaphores for concurrency control. Reliable and well-tested.
 //! - **Best for**: Production environments requiring proven stability
 //! - **Concurrency**: Semaphore-based with configurable limits
@@ -256,7 +256,7 @@
 //! ## Timeout Configuration
 //!
 //! - **Fast tools** (< 1s): `execution_timeout` = 5-10 seconds
-//! - **Standard tools** (1-10s): `execution_timeout` = 30-60 seconds  
+//! - **Standard tools** (1-10s): `execution_timeout` = 30-60 seconds
 //! - **Slow tools** (> 10s): `execution_timeout` = 120+ seconds
 //!
 //! ## Validation Overhead
@@ -300,22 +300,14 @@ use tokio::sync::Semaphore;
 use tokio::time::timeout;
 use tracing::debug;
 
-
-use crate::telemetry::metrics::{SharedMetricsCollector, ToolMetrics};
-
 /// Parallel execution strategy for tool execution
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum ExecutionStrategy {
     /// Use the legacy semaphore-based approach (default)
+    #[default]
     Legacy,
     /// Use the new ParallelExecutor trait with TokioExecutor
     Parallel,
-}
-
-impl Default for ExecutionStrategy {
-    fn default() -> Self {
-        ExecutionStrategy::Legacy
-    }
 }
 
 /// Configuration for tool execution
@@ -356,10 +348,10 @@ impl ExecutorConfig {
     pub fn new(max_parallel_tools: usize) -> Result<Self, crate::StoodError> {
         if max_parallel_tools < 1 {
             return Err(crate::StoodError::configuration_error(
-                "max_parallel_tools must be greater than 0"
+                "max_parallel_tools must be greater than 0",
             ));
         }
-        
+
         Ok(Self {
             max_parallel_tools,
             max_concurrent: max_parallel_tools, // Keep legacy field in sync
@@ -369,7 +361,7 @@ impl ExecutorConfig {
             execution_strategy: ExecutionStrategy::default(),
         })
     }
-    
+
     /// Create config for sequential execution (max_parallel_tools = 1)
     pub fn sequential() -> Self {
         Self {
@@ -381,17 +373,17 @@ impl ExecutorConfig {
             execution_strategy: ExecutionStrategy::Legacy,
         }
     }
-    
+
     /// Check if this config uses parallel execution
     pub fn is_parallel(&self) -> bool {
         self.max_parallel_tools > 1
     }
-    
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), crate::StoodError> {
         if self.max_parallel_tools < 1 {
             return Err(crate::StoodError::configuration_error(
-                "max_parallel_tools must be greater than 0"
+                "max_parallel_tools must be greater than 0",
             ));
         }
         Ok(())
@@ -420,9 +412,6 @@ pub struct ToolExecutor {
     semaphore: Arc<Semaphore>,
     /// Parallel executor for new execution strategy
     parallel_executor: Option<Arc<TokioExecutor>>,
-    /// Metrics collector for telemetry
-    
-    metrics_collector: Option<SharedMetricsCollector>,
 }
 
 impl ToolExecutor {
@@ -435,15 +424,17 @@ impl ToolExecutor {
             tracing::error!("Invalid ExecutorConfig: {}", e);
             panic!("Invalid ExecutorConfig: {}", e);
         }
-        
+
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
 
         // Following reference-python logic:
         // - If max_parallel_tools == 1, use sequential execution (no parallel executor)
         // - If max_parallel_tools > 1 AND strategy is Parallel, create parallel executor with max_workers = max_parallel_tools
-        let parallel_executor = if config.max_parallel_tools > 1 && matches!(config.execution_strategy, ExecutionStrategy::Parallel) {
+        let parallel_executor = if config.max_parallel_tools > 1
+            && matches!(config.execution_strategy, ExecutionStrategy::Parallel)
+        {
             tracing::debug!(
-                "Creating parallel executor with max_workers={}", 
+                "Creating parallel executor with max_workers={}",
                 config.max_parallel_tools
             );
             let parallel_config = ParallelConfig {
@@ -463,16 +454,7 @@ impl ToolExecutor {
             config,
             semaphore,
             parallel_executor,
-            
-            metrics_collector: None,
         }
-    }
-
-    /// Set the metrics collector for telemetry
-    
-    pub fn with_metrics_collector(mut self, collector: SharedMetricsCollector) -> Self {
-        self.metrics_collector = Some(collector);
-        self
     }
 
     /// Create a tool executor with a custom parallel executor
@@ -482,15 +464,13 @@ impl ToolExecutor {
             tracing::error!("Invalid ExecutorConfig: {}", e);
             panic!("Invalid ExecutorConfig: {}", e);
         }
-        
+
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
 
         Self {
             config,
             semaphore,
             parallel_executor: Some(executor),
-            
-            metrics_collector: None,
         }
     }
 }
@@ -536,7 +516,8 @@ impl ToolExecutor {
         // Validate input if configured
         if self.config.validate_inputs {
             if let Err(validation_error) = self.validate_tool_input(&tool, &tool_use.input) {
-                let result = ToolResult::error(format!("Input validation failed: {}", validation_error));
+                let result =
+                    ToolResult::error(format!("Input validation failed: {}", validation_error));
 
                 let metrics = if self.config.capture_metrics {
                     Some(ExecutionMetrics {
@@ -592,21 +573,6 @@ impl ToolExecutor {
             None
         };
 
-        // Record tool execution metrics for telemetry
-        
-        if let Some(ref collector) = self.metrics_collector {
-            let tool_metrics = ToolMetrics {
-                tool_name: tool_use.name.clone(),
-                duration: started_at.elapsed(),
-                success,
-                retry_attempts: 0, // ToolExecutor doesn't track retries
-                error_type: if success { None } else { 
-                    result.error.clone() 
-                },
-            };
-            collector.record_tool_metrics(&tool_metrics);
-        }
-
         (result, metrics)
     }
 
@@ -620,14 +586,15 @@ impl ToolExecutor {
         agent_context: Option<&crate::agent::AgentContext>,
     ) -> Vec<(ToolResult, Option<ExecutionMetrics>)> {
         let tool_count = executions.len();
-        
+
         if self.config.max_parallel_tools == 1 {
             // Sequential execution path
             tracing::debug!(
                 "tool_count={}, max_parallel_tools=1 | executing tools sequentially",
                 tool_count
             );
-            self.execute_tools_sequential(executions, agent_context).await
+            self.execute_tools_sequential(executions, agent_context)
+                .await
         } else if let Some(executor) = &self.parallel_executor {
             // Parallel execution path
             tracing::debug!(
@@ -644,7 +611,8 @@ impl ToolExecutor {
                 tool_count,
                 self.config.max_parallel_tools
             );
-            self.execute_tools_semaphore_based(executions, agent_context.cloned()).await
+            self.execute_tools_semaphore_based(executions, agent_context.cloned())
+                .await
         }
     }
 
@@ -656,16 +624,22 @@ impl ToolExecutor {
         agent_context: Option<&crate::agent::AgentContext>,
     ) -> Vec<(ToolResult, Option<ExecutionMetrics>)> {
         let mut results = Vec::with_capacity(executions.len());
-        
+
         for (tool, tool_use) in executions {
-            debug!("SEQUENTIAL_EXEC: Starting execution of tool '{}'", tool_use.name);
+            debug!(
+                "SEQUENTIAL_EXEC: Starting execution of tool '{}'",
+                tool_use.name
+            );
             let start_time = std::time::Instant::now();
             let result = self.execute_tool(tool, &tool_use, agent_context).await;
             let duration = start_time.elapsed();
-            debug!("SEQUENTIAL_EXEC: Completed tool '{}' in {:?}", tool_use.name, duration);
+            debug!(
+                "SEQUENTIAL_EXEC: Completed tool '{}' in {:?}",
+                tool_use.name, duration
+            );
             results.push(result);
         }
-        
+
         results
     }
 
@@ -693,9 +667,9 @@ impl ToolExecutor {
         agent_context: Option<&crate::agent::AgentContext>,
     ) -> Vec<(ToolResult, Option<ExecutionMetrics>)> {
         use crate::parallel::ParallelExecutor;
-        
+
         debug!(
-            "Using ParallelExecutor interface for {} tool executions", 
+            "Using ParallelExecutor interface for {} tool executions",
             executions.len()
         );
 
@@ -706,28 +680,46 @@ impl ToolExecutor {
             let tool_use_clone = tool_use.clone();
             let executor_self = self.clone();
             let agent_context_clone = agent_context.cloned();
-            
-            debug!("Submitting task {} ({}) to parallel executor", task_id, tool_use.name);
-            
+
+            debug!(
+                "Submitting task {} ({}) to parallel executor",
+                task_id, tool_use.name
+            );
+
             let future = async move {
-                debug!("PARALLEL_EXEC: Starting execution of task {}", tool_use_clone.name);
+                debug!(
+                    "PARALLEL_EXEC: Starting execution of task {}",
+                    tool_use_clone.name
+                );
                 let start_time = std::time::Instant::now();
-                let (result, metrics) = executor_self.execute_tool(tool_clone, &tool_use_clone, agent_context_clone.as_ref()).await;
+                let (result, metrics) = executor_self
+                    .execute_tool(tool_clone, &tool_use_clone, agent_context_clone.as_ref())
+                    .await;
                 let duration = start_time.elapsed();
-                debug!("PARALLEL_EXEC: Completed task {} in {:?}", tool_use_clone.name, duration);
+                debug!(
+                    "PARALLEL_EXEC: Completed task {} in {:?}",
+                    tool_use_clone.name, duration
+                );
                 Ok((result, metrics))
             };
-            
+
             if let Err(e) = executor.submit_task(task_id, future).await {
-                tracing::error!("Failed to submit tool {} to parallel executor: {}", tool_use.name, e);
+                tracing::error!(
+                    "Failed to submit tool {} to parallel executor: {}",
+                    tool_use.name,
+                    e
+                );
             }
         }
 
         // Wait for all tasks to complete and collect results
-        match executor.wait_all::<(ToolResult, Option<ExecutionMetrics>)>().await {
+        match executor
+            .wait_all::<(ToolResult, Option<ExecutionMetrics>)>()
+            .await
+        {
             Ok(task_results) => {
                 let mut results = Vec::with_capacity(executions.len());
-                
+
                 // Convert TaskResult to our expected format
                 for task_result in task_results {
                     match task_result.result {
@@ -746,7 +738,7 @@ impl ToolExecutor {
                         }
                     }
                 }
-                
+
                 results
             }
             Err(e) => {
@@ -885,11 +877,11 @@ mod tests {
         fn name(&self) -> &str {
             &self.name
         }
-        
+
         fn description(&self) -> &str {
             "A mock tool for testing"
         }
-        
+
         fn parameters_schema(&self) -> Value {
             json!({
                 "type": "object",
@@ -902,8 +894,12 @@ mod tests {
                 "required": ["message"]
             })
         }
-        
-        async fn execute(&self, parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<crate::tools::ToolResult, crate::tools::ToolError> {
+
+        async fn execute(
+            &self,
+            parameters: Option<Value>,
+            _agent_context: Option<&crate::agent::AgentContext>,
+        ) -> Result<crate::tools::ToolResult, crate::tools::ToolError> {
             self.execution_count.fetch_add(1, Ordering::Relaxed);
 
             // Simulate execution time
@@ -1253,7 +1249,7 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_execution_fallback() {
         let config = ExecutorConfig {
-            max_parallel_tools: 2, // > 1 to trigger parallel path
+            max_parallel_tools: 2,                         // > 1 to trigger parallel path
             execution_strategy: ExecutionStrategy::Legacy, // But strategy is Legacy, so no parallel executor
             ..Default::default()
         };

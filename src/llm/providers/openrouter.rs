@@ -2,18 +2,21 @@
 //!
 //! This provider connects to OpenRouter's API which provides access to
 //! multiple models from various providers through a unified interface.
-//! 
+//!
 //! **Status: NOT YET IMPLEMENTED** - See README.md "TODO - Work in Progress" section
 //! This is a placeholder implementation that returns appropriate errors.
 //! Future implementation will support multi-provider proxy access via OpenRouter.
 
-use crate::llm::traits::{LlmProvider, ProviderType, LlmError, ChatResponse, ChatConfig, Tool, StreamEvent, ProviderCapabilities, HealthStatus};
+use crate::llm::traits::{
+    ChatConfig, ChatResponse, HealthStatus, LlmError, LlmProvider, ProviderCapabilities,
+    ProviderType, StreamEvent, Tool,
+};
 use crate::types::Messages;
 use async_trait::async_trait;
 use futures::Stream;
 
 /// OpenRouter provider - NOT YET IMPLEMENTED
-/// 
+///
 /// This provider connects to OpenRouter's API for access to multiple models.
 /// See README.md "🚧 Planned Providers (Not Yet Implemented)" section.
 #[derive(Debug)]
@@ -32,7 +35,7 @@ impl OpenRouterProvider {
     pub async fn new(api_key: String, base_url: Option<String>) -> Result<Self, LlmError> {
         let client = reqwest::Client::new();
         let base_url = base_url.unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
-        
+
         Ok(Self {
             api_key,
             base_url,
@@ -54,7 +57,7 @@ impl LlmProvider for OpenRouterProvider {
             provider: ProviderType::OpenRouter,
         })
     }
-    
+
     async fn chat_with_tools(
         &self,
         _model_id: &str,
@@ -67,7 +70,7 @@ impl LlmProvider for OpenRouterProvider {
             provider: ProviderType::OpenRouter,
         })
     }
-    
+
     async fn chat_streaming(
         &self,
         _model_id: &str,
@@ -79,7 +82,7 @@ impl LlmProvider for OpenRouterProvider {
             provider: ProviderType::OpenRouter,
         })
     }
-    
+
     async fn chat_streaming_with_tools(
         &self,
         _model_id: &str,
@@ -92,7 +95,7 @@ impl LlmProvider for OpenRouterProvider {
             provider: ProviderType::OpenRouter,
         })
     }
-    
+
     async fn health_check(&self) -> Result<HealthStatus, LlmError> {
         Ok(HealthStatus {
             healthy: false,
@@ -101,11 +104,11 @@ impl LlmProvider for OpenRouterProvider {
             error: Some("OpenRouter provider not yet implemented".to_string()),
         })
     }
-    
+
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             supports_streaming: false, // Will be true when implemented
-            supports_tools: false, // Will be true when implemented
+            supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
             max_tokens: None, // Varies by model
@@ -117,11 +120,11 @@ impl LlmProvider for OpenRouterProvider {
             ],
         }
     }
-    
+
     fn provider_type(&self) -> ProviderType {
         ProviderType::OpenRouter
     }
-    
+
     fn supported_models(&self) -> Vec<&'static str> {
         vec![
             "anthropic/claude-3.5-sonnet",
@@ -130,7 +133,7 @@ impl LlmProvider for OpenRouterProvider {
             "google/gemini-pro-1.5",
         ]
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

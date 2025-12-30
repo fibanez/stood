@@ -18,10 +18,10 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Simplest possible agent creation - everything auto-configured
 //!     let mut agent = Agent::builder().build().await?;
-//!     
+//!
 //!     let response = agent.chat("What is the capital of France?").await?;
 //!     println!("Agent: {}", response);
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -139,12 +139,12 @@
 pub mod agent;
 // Bedrock functionality now in llm::providers::bedrock
 pub mod config;
-pub mod llm;
 pub mod context_manager;
 pub mod conversation_manager;
 pub mod error;
 pub mod error_recovery;
 pub mod health;
+pub mod llm;
 pub mod mcp;
 pub mod message_processor;
 pub mod parallel;

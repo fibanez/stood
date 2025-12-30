@@ -25,7 +25,7 @@ use syn::{
 /// async fn add(
 ///     /// First number
 ///     a: f64,
-///     /// Second number  
+///     /// Second number
 ///     b: f64
 /// ) -> Result<f64, String> {
 ///     Ok(a + b)
@@ -227,7 +227,7 @@ fn generate_renamed_function(input_fn: &ItemFn) -> syn::Result<TokenStream2> {
     let original_name = &input_fn.sig.ident;
     let impl_name = format_ident!("{}_impl", original_name);
     renamed_fn.sig.ident = impl_name;
-    
+
     Ok(quote! { #renamed_fn })
 }
 
@@ -236,7 +236,7 @@ fn generate_function_constructor(fn_info: &FunctionInfo) -> syn::Result<TokenStr
     let fn_name = format_ident!("{}", fn_info.name);
     let struct_name = format_ident!("{}Tool", snake_to_pascal(&fn_info.name));
     let vis = &fn_info.vis;
-    
+
     Ok(quote! {
         /// Create a new instance of this tool for use with agents
         #vis fn #fn_name() -> Box<dyn stood::tools::Tool> {
@@ -324,8 +324,8 @@ fn generate_tool_trait_impl(
 
                 // Validate input is an object
                 let input_obj = input.as_object()
-                    .ok_or_else(|| stood::tools::ToolError::InvalidParameters { 
-                        message: "Tool input must be a JSON object".to_string() 
+                    .ok_or_else(|| stood::tools::ToolError::InvalidParameters {
+                        message: "Tool input must be a JSON object".to_string()
                     })?;
 
                 // Extract and validate parameters
@@ -438,12 +438,12 @@ fn generate_parameter_extraction(inputs: &[FunctionInput]) -> syn::Result<Vec<To
         } else {
             quote! {
                 let #param_name = input_obj.get(#param_str)
-                    .ok_or_else(|| stood::tools::ToolError::InvalidParameters { 
-                        message: format!("Missing required parameter: {}", #param_str) 
+                    .ok_or_else(|| stood::tools::ToolError::InvalidParameters {
+                        message: format!("Missing required parameter: {}", #param_str)
                     })?;
                 let #param_name = serde_json::from_value(#param_name.clone())
-                    .map_err(|e| stood::tools::ToolError::InvalidParameters { 
-                        message: format!("Invalid parameter {}: {}", #param_str, e) 
+                    .map_err(|e| stood::tools::ToolError::InvalidParameters {
+                        message: format!("Invalid parameter {}: {}", #param_str, e)
                     })?;
             }
         };
@@ -465,9 +465,7 @@ fn capitalize_first(s: &str) -> String {
 
 /// Convert snake_case to PascalCase
 fn snake_to_pascal(s: &str) -> String {
-    s.split('_')
-        .map(capitalize_first)
-        .collect::<String>()
+    s.split('_').map(capitalize_first).collect::<String>()
 }
 
 #[cfg(test)]

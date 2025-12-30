@@ -43,7 +43,6 @@ impl Default for AgentConfig {
     }
 }
 
-
 /// Model family classification
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelFamily {
@@ -127,7 +126,7 @@ impl AgentResponse {
 }
 
 /// Token usage information for a model interaction
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TokenUsage {
     /// Number of input tokens
     pub input_tokens: u32,
@@ -207,7 +206,10 @@ mod tests {
     fn test_agent_config_default() {
         let config = AgentConfig::default();
         assert_eq!(config.provider, crate::llm::traits::ProviderType::Bedrock);
-        assert_eq!(config.model_id, "us.anthropic.claude-3-5-haiku-20241022-v1:0");
+        assert_eq!(
+            config.model_id,
+            "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        );
         assert!(!config.enable_thinking); // Haiku doesn't support thinking
         assert!(config.max_parallel_tools > 0);
     }

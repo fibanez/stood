@@ -3,8 +3,8 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::agent::Agent;
     use crate::agent::callbacks::PrintingConfig;
+    use crate::agent::Agent;
     use std::env;
     use std::time::Duration;
 
@@ -48,7 +48,7 @@ mod tests {
 
         assert!(streaming_message.is_complete());
         assert_eq!(streaming_message.message.content.len(), 1);
-        
+
         if let crate::types::ContentBlock::Text { text } = &streaming_message.message.content[0] {
             assert_eq!(text, "Hello streaming!");
         } else {
@@ -117,29 +117,46 @@ mod tests {
 
         assert!(streaming_message.is_complete());
         assert_eq!(streaming_message.message.content.len(), 2);
-        
+
         // Check reasoning content block
-        if let crate::types::ContentBlock::ReasoningContent { reasoning } = &streaming_message.message.content[0] {
-            assert_eq!(reasoning.text(), "Let me think about this step by step... I need to consider the implications.");
+        if let crate::types::ContentBlock::ReasoningContent { reasoning } =
+            &streaming_message.message.content[0]
+        {
+            assert_eq!(
+                reasoning.text(),
+                "Let me think about this step by step... I need to consider the implications."
+            );
             assert_eq!(reasoning.signature(), Some("sig_abc123"));
         } else {
-            panic!("Expected reasoning content block, got: {:?}", &streaming_message.message.content[0]);
+            panic!(
+                "Expected reasoning content block, got: {:?}",
+                &streaming_message.message.content[0]
+            );
         }
-        
+
         // Check regular text block
         if let crate::types::ContentBlock::Text { text } = &streaming_message.message.content[1] {
             assert_eq!(text, "Based on my analysis, the answer is 42.");
         } else {
-            panic!("Expected text content block, got: {:?}", &streaming_message.message.content[1]);
+            panic!(
+                "Expected text content block, got: {:?}",
+                &streaming_message.message.content[1]
+            );
         }
-        
+
         // Test helper methods for reasoning content access
-        let reasoning_blocks: Vec<_> = streaming_message.message.content.iter()
+        let reasoning_blocks: Vec<_> = streaming_message
+            .message
+            .content
+            .iter()
             .filter_map(|block| block.as_reasoning_content())
             .collect();
-        
+
         assert_eq!(reasoning_blocks.len(), 1);
-        assert_eq!(reasoning_blocks[0].text(), "Let me think about this step by step... I need to consider the implications.");
+        assert_eq!(
+            reasoning_blocks[0].text(),
+            "Let me think about this step by step... I need to consider the implications."
+        );
     }
 
     #[tokio::test]
@@ -165,7 +182,9 @@ mod tests {
             .expect("Failed to create agent - check AWS credentials");
 
         // Test streaming execution
-        let result = agent.execute("Say 'Hello streaming world!' - keep it short").await;
+        let result = agent
+            .execute("Say 'Hello streaming world!' - keep it short")
+            .await;
 
         match result {
             Ok(response) => {
@@ -191,11 +210,11 @@ mod tests {
         assert_eq!(config.timeout, Duration::from_secs(30));
     }
 
-    #[test] 
+    #[test]
     fn test_stream_processor_creation() {
         let config = StreamConfig::default();
         let processor = StreamProcessor::new(config);
-        
+
         // Just verify we can create it without panics
         assert_eq!(processor.config.buffer_size, 100);
     }

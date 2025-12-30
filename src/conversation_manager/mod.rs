@@ -456,7 +456,7 @@ impl ConversationManager for SlidingWindowManager {
                 ""
             };
             format!(
-                "Applied sliding window management{}: removed {} messages, cleaned {} dangling messages", 
+                "Applied sliding window management{}: removed {} messages, cleaned {} dangling messages",
                 context_msg, total_removed, total_dangling
             )
         } else {

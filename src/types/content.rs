@@ -286,12 +286,12 @@ impl ReasoningContentBlock {
             reasoning_text: ReasoningText { text, signature },
         }
     }
-    
+
     /// Get the reasoning text
     pub fn text(&self) -> &str {
         &self.reasoning_text.text
     }
-    
+
     /// Get the signature if present
     pub fn signature(&self) -> Option<&str> {
         self.reasoning_text.signature.as_deref()

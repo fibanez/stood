@@ -3,10 +3,10 @@
 //! This example shows how to use the Agent with different callback configurations,
 //! from silent execution to verbose monitoring with multiple handlers.
 
-use stood::agent::{Agent, PrintingConfig};
-use stood::agent::callbacks::{CallbackHandler, CallbackEvent, CallbackError};
 use async_trait::async_trait;
 use std::io::{self, Write};
+use stood::agent::callbacks::{CallbackError, CallbackEvent, CallbackHandler};
+use stood::agent::{Agent, PrintingConfig};
 
 /// Custom callback handler that aligns streaming output with the outline structure
 #[derive(Debug)]
@@ -18,7 +18,7 @@ struct AlignedStreamingHandler {
 impl AlignedStreamingHandler {
     fn new(indent_level: usize) -> Self {
         let indent = "     ".repeat(indent_level) + "⎿ ";
-        Self { 
+        Self {
             indent,
             stream_prefix_printed: std::sync::Arc::new(std::sync::Mutex::new(false)),
         }
@@ -29,19 +29,21 @@ impl AlignedStreamingHandler {
 impl CallbackHandler for AlignedStreamingHandler {
     async fn handle_event(&self, event: CallbackEvent) -> Result<(), CallbackError> {
         match event {
-            CallbackEvent::ContentDelta { delta, complete, .. } => {
+            CallbackEvent::ContentDelta {
+                delta, complete, ..
+            } => {
                 if delta.trim().is_empty() {
                     return Ok(());
                 }
-                
+
                 let mut prefix_printed = self.stream_prefix_printed.lock().unwrap();
-                
+
                 // Print the streaming prefix only once at the start
                 if !*prefix_printed {
                     print!("{}STREAMING: ", self.indent);
                     *prefix_printed = true;
                 }
-                
+
                 // Print content, respecting newlines
                 if delta.contains('\n') {
                     // Split on newlines and handle each part
@@ -58,13 +60,13 @@ impl CallbackHandler for AlignedStreamingHandler {
                     // No newlines, just print the content
                     print!("{}", delta);
                 }
-                
+
                 if complete {
                     println!();
                     println!("{}STREAMING: Content delivery completed", self.indent);
                     *prefix_printed = false; // Reset for next stream
                 }
-                
+
                 io::stdout().flush().unwrap();
             }
             CallbackEvent::ToolStart { tool_name, .. } => {
@@ -79,16 +81,27 @@ impl CallbackHandler for AlignedStreamingHandler {
                     io::stdout().flush().unwrap();
                 }
             }
-            CallbackEvent::ToolComplete { tool_name, duration, error, .. } => {
+            CallbackEvent::ToolComplete {
+                tool_name,
+                duration,
+                error,
+                ..
+            } => {
                 // If we're in the middle of streaming, add a newline and proper alignment
                 let prefix_printed = self.stream_prefix_printed.lock().unwrap();
                 if *prefix_printed {
                     println!(); // End the current streaming line
                 }
                 if let Some(err) = error {
-                    println!("{}❌ Tool {} failed after {:?}: {}", self.indent, tool_name, duration, err);
+                    println!(
+                        "{}❌ Tool {} failed after {:?}: {}",
+                        self.indent, tool_name, duration, err
+                    );
                 } else {
-                    println!("{}✅ Tool {} completed in {:?}", self.indent, tool_name, duration);
+                    println!(
+                        "{}✅ Tool {} completed in {:?}",
+                        self.indent, tool_name, duration
+                    );
                 }
                 if *prefix_printed {
                     print!("{}           ", self.indent); // Resume streaming alignment
@@ -106,36 +119,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disable logging to reduce noise and show clean callback output
     std::env::set_var("RUST_LOG", "error");
     std::env::set_var("OTEL_ENABLED", "false");
-    
+
     println!("🚀 Callback System Demo");
     println!("========================\n");
 
     // Check if AWS credentials are available (silently)
-    let has_aws = std::env::var("AWS_ACCESS_KEY_ID").is_ok() || 
-                  std::env::var("AWS_PROFILE").is_ok() || 
-                  std::env::var("AWS_ROLE_ARN").is_ok();
+    let has_aws = std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+        || std::env::var("AWS_PROFILE").is_ok()
+        || std::env::var("AWS_ROLE_ARN").is_ok();
 
     // Example 1: Silent Agent (Creation + Execution)
     println!("1. Silent Agent - Default settings (no callback output)");
     println!("   ⎿ Creating agent...");
-    let mut silent_agent = Agent::builder()
-        .with_builtin_tools()
-        .build().await?;
-    
+    let mut silent_agent = Agent::builder().with_builtin_tools().build().await?;
+
     println!("   ⎿ Agent created successfully with ExecutionConfig::default()");
     println!("   ⎿ Callback handler: None (silent execution)");
     println!("   ⎿ Tools available: Calculator, File operations, HTTP, Environment");
-    
+
     if has_aws {
         println!("   ⎿ Testing execution:");
         println!("     ⎿ Sending: 'What is 3+7? Use the calculator tool.'");
         println!("     ⎿ Expected: No real-time output, just final result");
         println!("     ⎿ Callbacks: None (silent)");
         println!();
-        match silent_agent.execute("What is 3+7? Use the calculator tool.").await {
+        match silent_agent
+            .execute("What is 3+7? Use the calculator tool.")
+            .await
+        {
             Ok(result) => {
                 println!("     ⎿ DEBUG: Execution completed successfully");
-                println!("     ⎿ DEBUG: Response length: {} chars", result.response.len());
+                println!(
+                    "     ⎿ DEBUG: Response length: {} chars",
+                    result.response.len()
+                );
                 println!("     ⎿ DEBUG: Used tools: {}", result.used_tools);
                 println!("     ⎿ DEBUG: Tools called: {:?}", result.tools_called);
                 println!("     ⎿ Agent Response:");
@@ -159,19 +176,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut printing_agent = Agent::builder()
         .with_callback_handler(AlignedStreamingHandler::new(2))
         .with_builtin_tools()
-        .build().await?;
-    
+        .build()
+        .await?;
+
     println!("   ⎿ Agent created with AlignedStreamingHandler");
     println!("   ⎿ Will show tool execution and streaming output");
     println!("   ⎿ Output format: Real-time content + tool notifications (aligned)");
-    
+
     if has_aws {
         println!("   ⎿ Testing execution:");
         println!("     ⎿ Sending: 'Calculate 25 * 8 + 17 using the calculator tool.'");
         println!("     ⎿ Expected: Real-time streaming + tool notifications");
         println!("     ⎿ Callbacks: Tool start/complete messages + streaming content");
         println!();
-        match printing_agent.execute("Calculate 25 * 8 + 17 using the calculator tool.").await {
+        match printing_agent
+            .execute("Calculate 25 * 8 + 17 using the calculator tool.")
+            .await
+        {
             Ok(result) => {
                 println!("     ⎿ DEBUG: Printing execution completed");
                 println!("     ⎿ DEBUG: Used tools: {}", result.used_tools);
@@ -192,24 +213,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut verbose_agent = Agent::builder()
         .with_callback_handler(AlignedStreamingHandler::new(2))
         .with_builtin_tools()
-        .build().await?;
-    
+        .build()
+        .await?;
+
     println!("   ⎿ Agent created with AlignedStreamingHandler (verbose mode)");
     println!("   ⎿ Will show reasoning, tools, and performance metrics");
     println!("   ⎿ Output format: Detailed execution traces + evaluation decisions (aligned)");
-    
+
     if has_aws {
         println!("   ⎿ Testing execution:");
         println!("     ⎿ Sending: 'What is the area of a circle with radius 4 meters?'");
         println!("     ⎿ Expected: Detailed traces + reasoning + tool execution + performance");
-        println!("     ⎿ Callbacks: All events including evaluation decisions and detailed metrics");
+        println!(
+            "     ⎿ Callbacks: All events including evaluation decisions and detailed metrics"
+        );
         println!();
-        match verbose_agent.execute("What is the area of a circle with radius 4 meters? Use the calculator if needed.").await {
+        match verbose_agent
+            .execute(
+                "What is the area of a circle with radius 4 meters? Use the calculator if needed.",
+            )
+            .await
+        {
             Ok(result) => {
                 println!("     ⎿ DEBUG: Verbose execution completed");
-                println!("     ⎿ DEBUG: Execution cycles: {}", result.execution.cycles);
-                println!("     ⎿ DEBUG: Model calls: {}", result.execution.model_calls);
-                println!("     ⎿ DEBUG: Tool executions: {}", result.execution.tool_executions);
+                println!(
+                    "     ⎿ DEBUG: Execution cycles: {}",
+                    result.execution.cycles
+                );
+                println!(
+                    "     ⎿ DEBUG: Model calls: {}",
+                    result.execution.model_calls
+                );
+                println!(
+                    "     ⎿ DEBUG: Tool executions: {}",
+                    result.execution.tool_executions
+                );
                 println!("     ⎿ DEBUG: Duration: {:?}", result.duration);
                 println!("     ⎿ DEBUG: Used tools: {}", result.used_tools);
                 println!("     ⎿ DEBUG: Success: {}", result.success);
@@ -232,12 +270,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         show_performance: true,
         stream_output: true,
     };
-    
+
     let mut custom_agent = Agent::builder()
         .with_callback_handler(AlignedStreamingHandler::new(2))
         .with_builtin_tools()
-        .build().await?;
-    
+        .build()
+        .await?;
+
     println!("   ⎿ Agent created with AlignedStreamingHandler (custom mode)");
     println!("   ⎿ Configuration breakdown:");
     println!("     ⎿ Streaming: AlignedStreamingHandler (✅ Aligned real-time streaming)");
@@ -245,14 +284,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("     ⎿ Performance: Implicit via execution results (✅ Duration tracking)");
     println!("     ⎿ Reasoning: Not shown in streaming (❌ Focused on results)");
     println!("   ⎿ Use case: Production monitoring with clean aligned output");
-    
+
     if has_aws {
         println!("   ⎿ Testing execution:");
         println!("     ⎿ Sending: 'What is 15 * 12? Use the calculator.'");
         println!("     ⎿ Expected: Aligned streaming + tool monitoring (clean output)");
         println!("     ⎿ Callbacks: AlignedStreamingHandler with tool notifications");
         println!();
-        match custom_agent.execute("What is 15 * 12? Use the calculator.").await {
+        match custom_agent
+            .execute("What is 15 * 12? Use the calculator.")
+            .await
+        {
             Ok(result) => {
                 println!("     ⎿ DEBUG: Custom configuration execution completed");
                 println!("     ⎿ DEBUG: Used tools: {}", result.used_tools);
@@ -275,26 +317,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .temperature(0.3)
         .with_callback_handler(AlignedStreamingHandler::new(2))
         .with_builtin_tools()
-        .build().await?;
-    
+        .build()
+        .await?;
+
     println!("   ⎿ Agent created with combined configuration:");
     println!("   ⎿ Configuration breakdown:");
     println!("     ⎿ System prompt: Custom assistant behavior");
-    println!("     ⎿ Temperature: 0.3 (more focused responses)"); 
+    println!("     ⎿ Temperature: 0.3 (more focused responses)");
     println!("     ⎿ Callbacks: AlignedStreamingHandler enabled");
     println!("     ⎿ Tools: Built-in tool suite available");
     println!("   ⎿ Use case: Production-ready agent with monitoring");
-    
+
     if has_aws {
         println!("   ⎿ Testing execution:");
         println!("     ⎿ Sending: 'Calculate 8 * 7 and explain briefly'");
         println!("     ⎿ Expected: Concise response due to custom system prompt + temp 0.3");
         println!("     ⎿ Callbacks: AlignedStreamingHandler with all events");
         println!();
-        match configured_agent.execute("Calculate 8 * 7 and explain briefly").await {
+        match configured_agent
+            .execute("Calculate 8 * 7 and explain briefly")
+            .await
+        {
             Ok(result) => {
                 println!("     ⎿ DEBUG: Fully configured execution completed");
-                println!("     ⎿ DEBUG: Response length: {} chars (should be concise)", result.response.len());
+                println!(
+                    "     ⎿ DEBUG: Response length: {} chars (should be concise)",
+                    result.response.len()
+                );
                 println!("     ⎿ DEBUG: Used tools: {}", result.used_tools);
                 println!("     ⎿ DEBUG: Duration: {:?}", result.duration);
                 println!("     ⎿ Production-ready configuration demonstrated");
@@ -316,29 +365,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let section_num = if has_aws { 4 } else { 7 };
-    println!("\n{}. Demonstrating execution config convenience constructors...", section_num);
-    
+    println!(
+        "\n{}. Demonstrating execution config convenience constructors...",
+        section_num
+    );
+
     // Show ExecutionConfig convenience constructors work
     use stood::agent::ExecutionConfig;
-    
+
     let _silent_config = ExecutionConfig::silent();
     println!("   ⎿ ExecutionConfig::silent() - No callbacks, clean execution");
-    
+
     let _printing_config = ExecutionConfig::with_printing();
     println!("   ⎿ ExecutionConfig::with_printing() - Default printing callbacks");
-    
+
     let _verbose_config = ExecutionConfig::verbose();
     println!("   ⎿ ExecutionConfig::verbose() - Full verbose output with reasoning");
-    
+
     let _minimal_config = ExecutionConfig::minimal();
     println!("   ⎿ ExecutionConfig::minimal() - Minimal output for headless execution");
 
     let section_num = if has_aws { 5 } else { 8 };
-    println!("\n{}. Example: Creating custom callback handler...", section_num);
-    
+    println!(
+        "\n{}. Example: Creating custom callback handler...",
+        section_num
+    );
+
     #[derive(Debug)]
     struct MyCustomHandler;
-    
+
     #[async_trait]
     impl CallbackHandler for MyCustomHandler {
         async fn handle_event(&self, event: CallbackEvent) -> Result<(), CallbackError> {
@@ -349,7 +404,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 CallbackEvent::ToolStart { tool_name, .. } => {
                     println!("     ⎿ CUSTOM: 🔧 Tool executing: {}", tool_name);
                 }
-                CallbackEvent::ContentDelta { delta, complete, .. } => {
+                CallbackEvent::ContentDelta {
+                    delta, complete, ..
+                } => {
                     print!("{}", delta);
                     if complete {
                         println!();
@@ -364,17 +421,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
     }
-    
+
     let _custom_handler_agent = Agent::builder()
         .with_callback_handler(MyCustomHandler)
         .with_builtin_tools()
-        .build().await?;
-    
+        .build()
+        .await?;
+
     println!("   ⎿ Custom callback handler created and configured");
     println!("   ⎿ Implementation: MyCustomHandler with prefixed output");
     println!("   ⎿ Events handled: ModelStart, ToolStart, ContentDelta, EventLoopComplete");
     println!("   ⎿ Use case: Custom analytics, logging, or UI integration");
-    
+
     let section_num = if has_aws { 6 } else { 9 };
     println!("\n{}. Configuration Comparison Summary...", section_num);
     println!("   ⎿ Agent 1 (Silent): No callbacks, clean execution");
@@ -406,6 +464,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  ⎿ Custom Config: Selective callback features (tools + performance only)");
     println!("  ⎿ Full Config: Complete setup with behavior customization");
     println!("  ⎿ Custom Handler: Complete control over event handling and formatting");
-    
+
     Ok(())
 }

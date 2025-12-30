@@ -5,7 +5,7 @@
 //!
 //! Features:
 //! - ✅ Basic interactive REPL
-//! - ✅ Simple agent responses  
+//! - ✅ Simple agent responses
 //! - ✅ Safe input handling
 //! - ✅ Error handling
 //! - ✅ Command support
@@ -35,7 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create agent without tools for simplicity
     println!("Setting up agent...");
     let mut agent = Agent::builder()
-        .system_prompt("You are a helpful assistant. Provide clear, concise answers to user questions.")
+        .system_prompt(
+            "You are a helpful assistant. Provide clear, concise answers to user questions.",
+        )
         .build()
         .await?;
 
@@ -102,12 +104,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Debug: Show what we're sending to the agent
                 println!("[DEBUG] Sending to agent: '{}'", input);
-                
+
                 let start_time = std::time::Instant::now();
                 match agent.execute(input).await {
                     Ok(result) => {
                         let duration = start_time.elapsed();
-                        
+
                         // Debug: Show response details
                         println!("[DEBUG] Response received in {:?}", duration);
                         println!("[DEBUG] Response length: {} chars", result.response.len());
@@ -116,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("[DEBUG] Tools called: {:?}", result.tools_called);
                         }
                         println!("[DEBUG] Success: {}", result.success);
-                        
+
                         if result.response.trim().is_empty() {
                             println!("❌ [ERROR] Empty response received!");
                             println!("💡 This might be the empty response bug we're debugging");
@@ -151,4 +153,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nThanks for trying Stood Interactive Chat!");
     Ok(())
 }
-

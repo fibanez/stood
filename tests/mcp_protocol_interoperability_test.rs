@@ -5,10 +5,10 @@
 
 use serde_json::json;
 use std::path::Path;
+use std::time::Duration;
 use stood::mcp::test_utils::*;
 use stood::mcp::*;
 use tokio::time::timeout;
-use std::time::Duration;
 
 /// Test MCP client against Python test server
 #[tokio::test]
@@ -26,13 +26,19 @@ async fn test_python_server_basic_protocol() {
     }
 
     let config = TestServerConfig::python_server(server_path);
-    let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Python server");
+    let mut server = TestMCPServer::spawn(config)
+        .await
+        .expect("Failed to spawn Python server");
 
     // Test basic protocol flow
-    test_basic_protocol_flow(server.client()).await.expect("Protocol test failed");
+    test_basic_protocol_flow(server.client())
+        .await
+        .expect("Protocol test failed");
 
     // Test Python-specific tools
-    test_python_specific_tools(server.client()).await.expect("Python tools test failed");
+    test_python_specific_tools(server.client())
+        .await
+        .expect("Python tools test failed");
 
     server.shutdown().await.expect("Failed to shutdown server");
 }
@@ -53,13 +59,19 @@ async fn test_nodejs_server_basic_protocol() {
     }
 
     let config = TestServerConfig::nodejs_server(server_path);
-    let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Node.js server");
+    let mut server = TestMCPServer::spawn(config)
+        .await
+        .expect("Failed to spawn Node.js server");
 
     // Test basic protocol flow
-    test_basic_protocol_flow(server.client()).await.expect("Protocol test failed");
+    test_basic_protocol_flow(server.client())
+        .await
+        .expect("Protocol test failed");
 
     // Test Node.js-specific tools
-    test_nodejs_specific_tools(server.client()).await.expect("Node.js tools test failed");
+    test_nodejs_specific_tools(server.client())
+        .await
+        .expect("Node.js tools test failed");
 
     server.shutdown().await.expect("Failed to shutdown server");
 }
@@ -73,7 +85,8 @@ async fn test_multiple_servers_concurrent() {
     let mut servers_spawned = 0;
 
     if python_available().await && Path::new("examples/test-servers/python-server.py").exists() {
-        let python_config = TestServerConfig::python_server("examples/test-servers/python-server.py");
+        let python_config =
+            TestServerConfig::python_server("examples/test-servers/python-server.py");
         if manager.spawn_server(python_config).await.is_ok() {
             servers_spawned += 1;
         }
@@ -102,10 +115,13 @@ async fn test_multiple_servers_concurrent() {
             }
         }
     }
-    
+
     assert!(all_passed, "All servers should pass basic protocol test");
 
-    manager.shutdown_all().await.expect("Failed to shutdown servers");
+    manager
+        .shutdown_all()
+        .await
+        .expect("Failed to shutdown servers");
 }
 
 /// Test error handling with real servers
@@ -114,10 +130,14 @@ async fn test_real_server_error_scenarios() {
     // Test with Python server if available
     if python_available().await && Path::new("examples/test-servers/python-server.py").exists() {
         let config = TestServerConfig::python_server("examples/test-servers/python-server.py");
-        let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Python server");
-        
-        test_error_scenarios(server.client()).await.expect("Error scenario test failed");
-        
+        let mut server = TestMCPServer::spawn(config)
+            .await
+            .expect("Failed to spawn Python server");
+
+        test_error_scenarios(server.client())
+            .await
+            .expect("Error scenario test failed");
+
         server.shutdown().await.expect("Failed to shutdown server");
     }
 }
@@ -131,13 +151,19 @@ async fn test_server_lifecycle() {
     }
 
     let config = TestServerConfig::python_server("examples/test-servers/python-server.py");
-    let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Python server");
+    let mut server = TestMCPServer::spawn(config)
+        .await
+        .expect("Failed to spawn Python server");
 
     // Verify server is running
     assert!(server.is_running(), "Server should be running");
 
     // Test basic functionality
-    let tools = server.client().list_tools().await.expect("Failed to list tools");
+    let tools = server
+        .client()
+        .list_tools()
+        .await
+        .expect("Failed to list tools");
     assert!(!tools.is_empty(), "Server should have tools");
 
     // Shutdown server
@@ -149,20 +175,31 @@ async fn test_basic_protocol_flow(client: &mut MCPClient) -> Result<(), MCPOpera
     // Test tool listing
     let tools = client.list_tools().await?;
     assert!(!tools.is_empty(), "Server should have at least one tool");
-    
+
     // Verify each tool has required fields
     for tool in &tools {
         assert!(!tool.name.is_empty(), "Tool name should not be empty");
-        assert!(!tool.description.is_empty(), "Tool description should not be empty");
-        assert!(tool.input_schema.is_object(), "Tool input schema should be an object");
+        assert!(
+            !tool.description.is_empty(),
+            "Tool description should not be empty"
+        );
+        assert!(
+            tool.input_schema.is_object(),
+            "Tool input schema should be an object"
+        );
     }
 
     // Test echo tool (should be available on both servers)
-    let echo_result = client.call_tool("echo", Some(json!({"text": "test message"}))).await?;
+    let echo_result = client
+        .call_tool("echo", Some(json!({"text": "test message"})))
+        .await?;
     assert!(!echo_result.is_empty(), "Echo should return content");
-    
+
     if let Content::Text(text_content) = &echo_result[0] {
-        assert!(text_content.text.contains("test message"), "Echo should contain original text");
+        assert!(
+            text_content.text.contains("test message"),
+            "Echo should contain original text"
+        );
     } else {
         panic!("Echo should return text content");
     }
@@ -173,15 +210,23 @@ async fn test_basic_protocol_flow(client: &mut MCPClient) -> Result<(), MCPOpera
 /// Test Python-specific tools
 async fn test_python_specific_tools(client: &mut MCPClient) -> Result<(), MCPOperationError> {
     // Test add tool
-    let add_result = client.call_tool("add", Some(json!({"a": 5, "b": 3}))).await?;
+    let add_result = client
+        .call_tool("add", Some(json!({"a": 5, "b": 3})))
+        .await?;
     if let Content::Text(text_content) = &add_result[0] {
-        assert!(text_content.text.contains("8"), "Add result should contain sum");
+        assert!(
+            text_content.text.contains("8"),
+            "Add result should contain sum"
+        );
     }
 
     // Test get_time tool
     let time_result = client.call_tool("get_time", None).await?;
     if let Content::Text(text_content) = &time_result[0] {
-        assert!(text_content.text.contains("Current time"), "Time result should contain current time");
+        assert!(
+            text_content.text.contains("Current time"),
+            "Time result should contain current time"
+        );
     }
 
     Ok(())
@@ -190,13 +235,20 @@ async fn test_python_specific_tools(client: &mut MCPClient) -> Result<(), MCPOpe
 /// Test Node.js-specific tools
 async fn test_nodejs_specific_tools(client: &mut MCPClient) -> Result<(), MCPOperationError> {
     // Test multiply tool
-    let multiply_result = client.call_tool("multiply", Some(json!({"a": 4, "b": 3}))).await?;
+    let multiply_result = client
+        .call_tool("multiply", Some(json!({"a": 4, "b": 3})))
+        .await?;
     if let Content::Text(text_content) = &multiply_result[0] {
-        assert!(text_content.text.contains("12"), "Multiply result should contain product");
+        assert!(
+            text_content.text.contains("12"),
+            "Multiply result should contain product"
+        );
     }
 
     // Test get_env tool
-    let env_result = client.call_tool("get_env", Some(json!({"name": "PATH"}))).await?;
+    let env_result = client
+        .call_tool("get_env", Some(json!({"name": "PATH"})))
+        .await?;
     if let Content::Text(text_content) = &env_result[0] {
         // PATH should exist in most environments
         assert!(text_content.text.contains("PATH=") || text_content.text.contains("not found"));
@@ -212,7 +264,9 @@ async fn test_error_scenarios(client: &mut MCPClient) -> Result<(), MCPOperation
     assert!(result.is_err(), "Should fail for non-existent tool");
 
     // Test calling tool with wrong parameters
-    let _result = client.call_tool("echo", Some(json!({"wrong_param": "value"}))).await;
+    let _result = client
+        .call_tool("echo", Some(json!({"wrong_param": "value"})))
+        .await;
     // Note: Some servers might be lenient with parameters, so we don't assert failure
 
     Ok(())
@@ -254,13 +308,17 @@ mod performance_tests {
     /// Benchmark tool calls against real servers
     #[tokio::test]
     async fn benchmark_tool_calls() {
-        if !python_available().await || !Path::new("examples/test-servers/python-server.py").exists() {
+        if !python_available().await
+            || !Path::new("examples/test-servers/python-server.py").exists()
+        {
             eprintln!("Skipping benchmark - Python server not available");
             return;
         }
 
         let config = TestServerConfig::python_server("examples/test-servers/python-server.py");
-        let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Python server");
+        let mut server = TestMCPServer::spawn(config)
+            .await
+            .expect("Failed to spawn Python server");
 
         // Warm up
         let _ = server.client().list_tools().await;
@@ -268,21 +326,34 @@ mod performance_tests {
         // Benchmark tool listing
         let start = Instant::now();
         for _ in 0..10 {
-            server.client().list_tools().await.expect("Tool listing failed");
+            server
+                .client()
+                .list_tools()
+                .await
+                .expect("Tool listing failed");
         }
         let list_duration = start.elapsed();
-        println!("Tool listing: 10 calls in {:?} ({:?} per call)", 
-                 list_duration, list_duration / 10);
+        println!(
+            "Tool listing: 10 calls in {:?} ({:?} per call)",
+            list_duration,
+            list_duration / 10
+        );
 
         // Benchmark tool calls
         let start = Instant::now();
         for i in 0..20 {
-            server.client().call_tool("echo", Some(json!({"text": format!("test {}", i)}))).await
+            server
+                .client()
+                .call_tool("echo", Some(json!({"text": format!("test {}", i)})))
+                .await
                 .expect("Tool call failed");
         }
         let call_duration = start.elapsed();
-        println!("Tool calls: 20 calls in {:?} ({:?} per call)", 
-                 call_duration, call_duration / 20);
+        println!(
+            "Tool calls: 20 calls in {:?} ({:?} per call)",
+            call_duration,
+            call_duration / 20
+        );
 
         server.shutdown().await.expect("Failed to shutdown server");
     }
@@ -290,24 +361,36 @@ mod performance_tests {
     /// Test high-frequency tool calls
     #[tokio::test]
     async fn test_high_frequency_calls() {
-        if !python_available().await || !Path::new("examples/test-servers/python-server.py").exists() {
+        if !python_available().await
+            || !Path::new("examples/test-servers/python-server.py").exists()
+        {
             eprintln!("Skipping high frequency test - Python server not available");
             return;
         }
 
         let config = TestServerConfig::python_server("examples/test-servers/python-server.py");
-        let mut server = TestMCPServer::spawn(config).await.expect("Failed to spawn Python server");
+        let mut server = TestMCPServer::spawn(config)
+            .await
+            .expect("Failed to spawn Python server");
 
         // Make many rapid calls sequentially to avoid borrowing issues
         let mut successes = 0;
         for i in 0..50 {
-            match server.client().call_tool("add", Some(json!({"a": i, "b": 1}))).await {
+            match server
+                .client()
+                .call_tool("add", Some(json!({"a": i, "b": 1})))
+                .await
+            {
                 Ok(_) => successes += 1,
                 Err(e) => eprintln!("Tool call {} failed: {}", i, e),
             }
         }
-        
-        assert!(successes >= 40, "At least 40 out of 50 rapid calls should succeed (got {})", successes);
+
+        assert!(
+            successes >= 40,
+            "At least 40 out of 50 rapid calls should succeed (got {})",
+            successes
+        );
 
         server.shutdown().await.expect("Failed to shutdown server");
     }

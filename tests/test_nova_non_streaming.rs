@@ -29,13 +29,16 @@ async fn test_nova_non_streaming() -> Result<(), Box<dyn std::error::Error>> {
         .ok(); // Ignore if already initialized
 
     println!("✅ Trace logging enabled");
-    
+
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         println!("❌ AWS Bedrock not available");
         return Err("AWS Bedrock not available".into());
     }
@@ -49,14 +52,14 @@ async fn test_nova_non_streaming() -> Result<(), Box<dyn std::error::Error>> {
     let mut agent = Agent::builder()
         .model(Bedrock::NovaLite)
         .system_prompt("You are a helpful assistant.")
-        .with_streaming(false)  // DISABLE STREAMING
+        .with_streaming(false) // DISABLE STREAMING
         .tools(tools)
         .with_log_level(LogLevel::Trace)
         .build()
         .await?;
 
     println!("🤖 Agent created with Nova Lite (non-streaming)");
-    
+
     // Simple test
     println!("\n=== Simple Test ===");
     let question = "What is 2+3?";

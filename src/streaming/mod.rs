@@ -6,7 +6,7 @@
 //!
 //! Key components:
 //! - `StreamEvent`: Rust equivalent of Python's streaming event types
-//! - `StreamProcessor`: Process AWS SDK streams into typed events  
+//! - `StreamProcessor`: Process AWS SDK streams into typed events
 //! - `StreamingMessage`: Incremental message building from stream chunks
 //! - `StreamConfig`: Configuration for streaming behavior
 
@@ -15,34 +15,18 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::{
-    types::{ContentBlock, Message, MessageRole, TokenUsage},
+    types::{ContentBlock, Message, MessageRole},
     Result, StoodError,
 };
 
 /// Usage information for token consumption
 pub use crate::types::TokenUsage as Usage;
 
-impl Default for TokenUsage {
-    fn default() -> Self {
-        Self {
-            input_tokens: 0,
-            output_tokens: 0,
-            total_tokens: 0,
-        }
-    }
-}
-
 /// Performance metrics for model interactions
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Metrics {
     /// Latency of the model request in milliseconds
     pub latency_ms: u64,
-}
-
-impl Default for Metrics {
-    fn default() -> Self {
-        Self { latency_ms: 0 }
-    }
 }
 
 /// Reason for the model ending its response generation
@@ -76,7 +60,7 @@ pub struct MessageStartEvent {
 pub enum ContentBlockStart {
     /// Text content block starting
     Text,
-    /// Tool use content block starting  
+    /// Tool use content block starting
     ToolUse {
         /// Unique identifier for this tool call
         tool_use_id: String,
@@ -311,7 +295,10 @@ impl StreamingMessage {
                 self.handle_content_block_stop()?;
             }
             StreamEvent::MessageStop(event) => {
-                tracing::debug!("Streaming message completed with stop_reason: {:?}", event.stop_reason);
+                tracing::debug!(
+                    "Streaming message completed with stop_reason: {:?}",
+                    event.stop_reason
+                );
                 self.is_complete = true;
                 self.stop_reason = Some(event.stop_reason);
             }
@@ -399,7 +386,7 @@ impl StreamingMessage {
             } else {
                 Some(self.current_signature.clone())
             };
-            
+
             self.message.content.push(ContentBlock::reasoning_content(
                 self.current_reasoning_text.clone(),
                 signature,
@@ -430,12 +417,12 @@ impl StreamingMessage {
     pub fn is_complete(&self) -> bool {
         self.is_complete
     }
-    
+
     /// Get the stop reason if available
     pub fn stop_reason(&self) -> Option<&StopReason> {
         self.stop_reason.as_ref()
     }
-    
+
     /// Get the token usage if available
     pub fn token_usage(&self) -> Option<&Usage> {
         self.token_usage.as_ref()

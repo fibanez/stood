@@ -10,9 +10,9 @@ pub mod core;
 // pub mod agentic;
 // pub mod performance;
 
-use crate::verification::shared::*;
-use crate::verification::shared::config::*;
 use crate::llm::traits::ProviderType;
+use crate::verification::shared::config::*;
+use crate::verification::shared::*;
 
 /// LM Studio-specific test configuration
 pub struct LMStudioTestConfig;
@@ -22,7 +22,7 @@ impl LMStudioTestConfig {
     pub fn default() -> TestConfig {
         TestConfig::lm_studio_gemma3()
     }
-    
+
     /// Create LM Studio test configuration with custom model
     pub fn with_model(model_id: impl Into<String>) -> TestConfig {
         TestConfigBuilder::new()
@@ -32,7 +32,7 @@ impl LMStudioTestConfig {
             .build()
             .expect("Failed to create LM Studio test config")
     }
-    
+
     /// Create fast test configuration for quick feedback
     pub fn fast() -> TestConfig {
         TestConfigBuilder::new()
@@ -44,7 +44,7 @@ impl LMStudioTestConfig {
             .build()
             .expect("Failed to create fast LM Studio test config")
     }
-    
+
     /// Create thorough test configuration for comprehensive testing
     pub fn thorough() -> TestConfig {
         TestConfigBuilder::new()
@@ -62,7 +62,7 @@ impl LMStudioTestConfig {
 pub async fn run_all_tests() -> Vec<VerificationResult> {
     println!("🚀 Starting LM Studio Provider Verification");
     println!("============================================");
-    
+
     // Configure provider registry first
     println!("⚙️  Configuring provider registry...");
     if let Err(e) = crate::llm::registry::ProviderRegistry::configure().await {
@@ -70,34 +70,34 @@ pub async fn run_all_tests() -> Vec<VerificationResult> {
         return Vec::new();
     }
     println!("✅ Provider registry configured");
-    
+
     // Check if LM Studio is available
     if !config::ProviderChecker::check_lm_studio().await {
         println!("❌ LM Studio is not available - skipping tests");
         println!("   Make sure LM Studio is running with API enabled at http://localhost:1234");
         return Vec::new();
     }
-    
+
     println!("✅ LM Studio detected and available");
-    
+
     let config = LMStudioTestConfig::default();
     println!("📋 Using model: {}", config.model_id);
     println!("⚙️  Configuration: {:?}", config);
-    
+
     let mut all_results = Vec::new();
-    
+
     // Run core functionality tests (Milestone 1)
     println!("\n🎯 MILESTONE 1: Core Provider Functionality");
     let core_suite = test_cases::create_core_test_suite();
     let core_results = core_suite.run(&config).await;
     all_results.extend(core_results);
-    
+
     // Run tool system tests (Milestone 2)
     println!("\n🛠️  MILESTONE 2: Tool System Integration");
     let tools_suite = test_cases::create_tools_test_suite();
     let tools_results = tools_suite.run(&config).await;
     all_results.extend(tools_results);
-    
+
     // Run streaming tests (Milestone 3) - only if provider supports streaming
     if config.enable_streaming {
         println!("\n📡 MILESTONE 3: Streaming and Real-time Features");
@@ -107,17 +107,17 @@ pub async fn run_all_tests() -> Vec<VerificationResult> {
     } else {
         println!("\n⏭️  MILESTONE 3: Streaming tests skipped (not enabled)");
     }
-    
+
     // Print final summary
     print_final_summary(&all_results);
-    
+
     all_results
 }
 
 /// Run specific milestone tests
 pub async fn run_milestone_tests(milestone: u8) -> Vec<VerificationResult> {
     let config = LMStudioTestConfig::default();
-    
+
     match milestone {
         1 => {
             println!("🎯 Running MILESTONE 1: Core Provider Functionality");
@@ -135,7 +135,10 @@ pub async fn run_milestone_tests(milestone: u8) -> Vec<VerificationResult> {
             suite.run(&config).await
         }
         _ => {
-            println!("❌ Invalid milestone number: {}. Valid options are 1, 2, 3", milestone);
+            println!(
+                "❌ Invalid milestone number: {}. Valid options are 1, 2, 3",
+                milestone
+            );
             Vec::new()
         }
     }
@@ -145,9 +148,9 @@ pub async fn run_milestone_tests(milestone: u8) -> Vec<VerificationResult> {
 pub async fn run_performance_tests() -> Vec<VerificationResult> {
     println!("🏃‍♂️ Running LM Studio Performance Tests");
     println!("========================================");
-    
+
     let config = LMStudioTestConfig::thorough();
-    
+
     // TODO: Implement performance-specific tests
     // For now, run comprehensive test suite with performance focus
     let suite = test_cases::create_comprehensive_test_suite();
@@ -159,44 +162,56 @@ fn print_final_summary(results: &[VerificationResult]) {
     let total = results.len();
     let passed = results.iter().filter(|r| r.success).count();
     let failed = total - passed;
-    
+
     println!("\n📊 LM Studio Verification Summary");
     println!("=================================");
     println!("Total Tests: {}", total);
     println!("Passed: {} ✅", passed);
     println!("Failed: {} ❌", failed);
-    
+
     if failed > 0 {
         println!("\n❌ Failed Tests:");
         for result in results.iter().filter(|r| !r.success) {
-            println!("   - {}: {}", 
-                result.test_name, 
+            println!(
+                "   - {}: {}",
+                result.test_name,
                 result.error.as_deref().unwrap_or("Unknown error")
             );
         }
     }
-    
+
     let success_rate = (passed as f64 / total as f64) * 100.0;
     println!("\nSuccess Rate: {:.1}%", success_rate);
-    
+
     // Performance summary
-    let avg_duration = results.iter()
+    let avg_duration = results
+        .iter()
         .filter(|r| r.success)
         .map(|r| r.duration.as_millis() as f64)
-        .sum::<f64>() / passed.max(1) as f64;
-    
+        .sum::<f64>()
+        / passed.max(1) as f64;
+
     println!("Average Response Time: {:.0}ms", avg_duration);
-    
+
     // Feature coverage summary
-    let core_tests = results.iter().filter(|r| r.test_name.contains("chat") || r.test_name.contains("conversation")).count();
-    let tool_tests = results.iter().filter(|r| r.test_name.contains("tool")).count();
-    let streaming_tests = results.iter().filter(|r| r.test_name.contains("streaming")).count();
-    
+    let core_tests = results
+        .iter()
+        .filter(|r| r.test_name.contains("chat") || r.test_name.contains("conversation"))
+        .count();
+    let tool_tests = results
+        .iter()
+        .filter(|r| r.test_name.contains("tool"))
+        .count();
+    let streaming_tests = results
+        .iter()
+        .filter(|r| r.test_name.contains("streaming"))
+        .count();
+
     println!("\nFeature Coverage:");
     println!("  Core Chat: {} tests", core_tests);
     println!("  Tools: {} tests", tool_tests);
     println!("  Streaming: {} tests", streaming_tests);
-    
+
     if success_rate >= 90.0 {
         println!("\n🎉 LM Studio provider verification: EXCELLENT");
     } else if success_rate >= 75.0 {

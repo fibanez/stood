@@ -1,10 +1,62 @@
 # Telemetry and Observability
 
-Stood provides enterprise-grade observability with OpenTelemetry integration, supporting comprehensive monitoring of AI agent performance, distributed tracing, and metrics collection.
+Stood provides observability for AI agent performance monitoring, including file logging, performance tracing, and metrics collection.
+
+## Current Status
+
+The telemetry module supports:
+
+- **File logging** - Production-ready via `LoggingConfig` and `PerformanceTracer`
+- **Metrics types** - `EventLoopMetrics`, `CycleMetrics`, `TokenUsage` for tracking
+- **OpenTelemetry integration** - Under active development for CloudWatch Gen AI
 
 ## Quick Start
 
-### Basic Telemetry Setup
+### Basic Setup (Telemetry Disabled)
+
+```rust
+use stood::agent::Agent;
+use stood::llm::models::Bedrock;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Telemetry is disabled by default - agent works without configuration
+    let mut agent = Agent::builder()
+        .model(Bedrock::ClaudeHaiku45)
+        .build().await?;
+
+    let result = agent.execute("Hello, world").await?;
+    println!("Response: {}", result.response);
+    Ok(())
+}
+```
+
+### With File Logging
+
+```rust
+use stood::telemetry::{init_logging, LoggingConfig};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = LoggingConfig {
+        log_dir: std::env::current_dir()?.join("logs"),
+        max_file_size: 10 * 1024 * 1024, // 10MB
+        max_files: 5,
+        file_log_level: "DEBUG".to_string(),
+        console_log_level: "INFO".to_string(),
+        console_enabled: true,
+        json_format: true,
+        enable_performance_tracing: true,
+        enable_cycle_detection: true,
+    };
+
+    let _guard = init_logging(config)?;
+
+    // Your agent code here - logs go to logs/stood.log
+    Ok(())
+}
+```
+
+### With TelemetryConfig
 
 ```rust
 use stood::agent::Agent;
@@ -13,313 +65,194 @@ use stood::llm::models::Bedrock;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Option 1: Explicit configuration
     let config = TelemetryConfig::default()
-        .with_otlp_endpoint("http://localhost:4318")
+        .with_enabled(true)
         .with_service_name("my-agent");
-    
-    let agent = Agent::builder()
+
+    let mut agent = Agent::builder()
         .model(Bedrock::ClaudeHaiku45)
         .with_telemetry(config)
-        .build().await?;
-
-    // Option 2: Environment-based with auto-detection
-    let agent = Agent::builder()
-        .model(Bedrock::ClaudeHaiku45)
-        .with_telemetry_from_env()
         .build().await?;
 
     Ok(())
 }
 ```
 
-**Telemetry is disabled by default** - you must explicitly enable it using one of the builder methods.
-
-## Smart Auto-Detection
-
-When using `.with_telemetry_from_env()`, Stood includes intelligent endpoint discovery:
-
-### How Auto-Detection Works
-
-1. **Environment Variable Check**: First checks for explicit `OTEL_EXPORTER_OTLP_ENDPOINT` configuration
-2. **Port Scanning**: Tests common OTLP ports (4318, 4320) on localhost and docker containers  
-3. **TCP Connection Test**: Performs quick TCP connection tests with 100ms timeout
-4. **Graceful Degradation**: Falls back to console export (dev) or disables telemetry (prod)
-
-### Debug Output
-Auto-detection provides detailed logging:
-```
-🔍 Stood: Starting OTLP endpoint detection...
-🔍 Stood: Testing endpoint: http://localhost:4318
-❌ Stood: TCP connection failed to localhost:4318 - Connection refused
-🔍 Stood: Testing endpoint: http://localhost:4320  
-✅ Stood: TCP connection successful to localhost:4320
-🎯 Stood: Auto-detected OTLP endpoint: http://localhost:4320
-```
-
 ## Environment Variables
 
 ```bash
 # Core Configuration
-OTEL_ENABLED=false                 # Disable telemetry entirely  
-OTEL_EXPORTER_OTLP_ENDPOINT       # Custom OTLP endpoint
-OTEL_SERVICE_NAME                 # Service name for traces
+OTEL_ENABLED=false                 # Enable/disable telemetry (default: false)
+OTEL_SERVICE_NAME=stood-agent      # Service name for identification
 
-# Advanced Configuration
-STOOD_OTEL_ENABLE_CONSOLE_EXPORT  # Force console export
-OTEL_BATCH_PROCESSOR              # Enable batch processing
-STOOD_OTEL_DEBUG_TRACING          # Enable detailed debug tracing
-STOOD_OTEL_EXPORT_MODE            # Export mode: "simple", "batch"
+# Logging
+RUST_LOG=stood=info               # Log level filter
 ```
 
-## OTLP Debug Logging
+## Available Types
 
-Stood includes comprehensive OTLP debug logging to troubleshoot telemetry issues:
+### TelemetryConfig
 
-**Log Location**: `~/.local/share/stood-telemetry/logs/otlp_exports.jsonl`
-
-### What Gets Logged
-
-1. **Telemetry Initialization** - Configuration, endpoint detection, tracer creation
-2. **OTLP Export Attempts** - All attempts to send traces/metrics/logs to OTLP endpoints
-3. **Span Operations** - Span creation, attribute setting, events, completion
-4. **Endpoint Detection** - Auto-detection attempts and TCP connection tests
-
-### Log Format
-```json
-{
-  "timestamp": "2025-07-01T02:35:13.166Z",
-  "module": "telemetry::otel::StoodTracer::init", 
-  "export_type": "traces",
-  "endpoint": "http://localhost:4320",
-  "payload_summary": "OTLP exporter initialization",
-  "payload_size_bytes": 0,
-  "success": true,
-  "error": null,
-  "thread_id": "ThreadId(1)"
-}
-```
-
-### Troubleshooting Steps
-
-When telemetry issues occur:
-
-1. **Check the debug log**: `cat ~/.local/share/stood-telemetry/logs/otlp_exports.jsonl`
-2. **Look for initialization failures**: Search for `"success": false` entries
-3. **Verify endpoint detection**: Look for auto-detection attempts and TCP connection results
-4. **Check export attempts**: Ensure spans/metrics are being sent to the correct endpoints
-
-### Common Issues
-
-- **No endpoints detected**: Auto-detection failed, manually set `OTEL_EXPORTER_OTLP_ENDPOINT`
-- **Connection refused**: OTLP collector not running or wrong port
-- **Exporter build failed**: Invalid endpoint URL or network issues
-- **No export attempts**: Telemetry disabled or tracer not properly initialized
-
-## Configuration Options
-
-### Production Configuration
+Configuration for telemetry and observability:
 
 ```rust
-use stood::telemetry::TelemetryConfig;
+use stood::telemetry::{TelemetryConfig, LogLevel};
 
 let config = TelemetryConfig::default()
-    .with_otlp_endpoint("https://api.honeycomb.io")
-    .with_service_name("production-agent")
+    .with_enabled(true)
+    .with_service_name("my-agent")
     .with_service_version("1.0.0")
-    .with_batch_processing()  // Higher throughput
-    .with_log_level(LogLevel::WARN);  // Reduce noise
-```
-
-### Development Configuration
-
-```rust
-let config = TelemetryConfig::default()
-    .with_console_export()  // Local debugging
-    .with_simple_processing()  // Immediate export
     .with_log_level(LogLevel::DEBUG);
-```
 
-### Testing Configuration
+// From environment variables
+let config = TelemetryConfig::from_env();
 
-```rust
+// For testing
 let config = TelemetryConfig::for_testing();
 ```
 
-## Collected Metrics
+### EventLoopMetrics
 
-### Agent Performance
-- `stood_agent_cycles_total` - Total number of agent execution cycles
-- `stood_agent_cycle_duration_seconds` - Agent cycle duration histogram
-- `stood_agent_errors_total` - Agent execution errors by type
+Metrics collected during agent execution:
 
-### Model Interactions  
-- `stood_model_tokens_input_total` - Input tokens consumed
-- `stood_model_tokens_output_total` - Output tokens generated
-- `stood_model_request_duration_seconds` - Model request latency
-- `stood_model_requests_total` - Total model requests by model type
+```rust
+use stood::telemetry::{EventLoopMetrics, CycleMetrics, TokenUsage};
+use uuid::Uuid;
+use std::time::Duration;
 
-### Tool Execution
-- `stood_tool_executions_total` - Tool executions by name and status
-- `stood_tool_execution_duration_seconds` - Tool execution time
-- `stood_tool_errors_total` - Tool execution errors by tool name
+let mut metrics = EventLoopMetrics::new();
+
+// Add a cycle
+let cycle = CycleMetrics {
+    cycle_id: Uuid::new_v4(),
+    duration: Duration::from_millis(150),
+    model_invocations: 1,
+    tool_calls: 2,
+    tokens_used: TokenUsage::new(100, 50),
+    trace_id: None,
+    span_id: None,
+    start_time: chrono::Utc::now(),
+    success: true,
+    error: None,
+};
+metrics.add_cycle(cycle);
+
+// Get summary
+let summary = metrics.summary();
+println!("Total cycles: {}", summary.total_cycles);
+println!("Total tokens: {}", summary.total_tokens.total_tokens);
+```
+
+### TokenUsage
+
+Track token consumption:
+
+```rust
+use stood::telemetry::TokenUsage;
+
+let mut usage = TokenUsage::new(100, 50);  // 100 input, 50 output
+assert_eq!(usage.total_tokens, 150);
+
+// Accumulate usage
+let more = TokenUsage::new(25, 25);
+usage.add(&more);
+assert_eq!(usage.total_tokens, 200);
+```
+
+### LoggingConfig
+
+Configure file and console logging:
+
+```rust
+use stood::telemetry::{init_logging, LoggingConfig};
+
+let config = LoggingConfig {
+    log_dir: std::path::PathBuf::from("./logs"),
+    max_file_size: 10 * 1024 * 1024,  // 10MB
+    max_files: 5,
+    file_log_level: "DEBUG".to_string(),
+    console_log_level: "INFO".to_string(),
+    console_enabled: true,
+    json_format: true,
+    enable_performance_tracing: true,
+    enable_cycle_detection: true,
+};
+
+let _guard = init_logging(config)?;
+```
+
+### PerformanceTracer
+
+Track operation timing and performance:
+
+```rust
+use stood::telemetry::PerformanceTracer;
+use std::time::Duration;
+
+let tracer = PerformanceTracer::new();
+
+// Start an operation
+let guard = tracer.start_operation("my_operation");
+guard.add_context("key", "value");
+
+// Do work...
+
+guard.checkpoint("midpoint");
+
+// Do more work...
+
+// Guard automatically records completion when dropped
+```
 
 ## GenAI Semantic Conventions
 
-Stood follows OpenTelemetry GenAI semantic conventions for AI workload observability:
+Stood follows OpenTelemetry GenAI semantic conventions:
 
-### Core Attributes
 ```rust
 use stood::telemetry::semantic_conventions::*;
 
 // Model attributes
-GEN_AI_SYSTEM                    // "anthropic.bedrock"
-GEN_AI_REQUEST_MODEL            // "claude-3-5-haiku-20241022"
-GEN_AI_REQUEST_MAX_TOKENS       // 4096
-GEN_AI_REQUEST_TEMPERATURE      // 0.7
+GEN_AI_SYSTEM                    // "gen_ai.system"
+GEN_AI_REQUEST_MODEL             // "gen_ai.request.model"
+GEN_AI_REQUEST_MAX_TOKENS        // "gen_ai.request.max_tokens"
+GEN_AI_REQUEST_TEMPERATURE       // "gen_ai.request.temperature"
 
-// Usage attributes  
-GEN_AI_USAGE_INPUT_TOKENS       // 150
-GEN_AI_USAGE_OUTPUT_TOKENS      // 75
-GEN_AI_USAGE_TOTAL_TOKENS       // 225
+// Usage attributes
+GEN_AI_USAGE_INPUT_TOKENS        // "gen_ai.usage.input_tokens"
+GEN_AI_USAGE_OUTPUT_TOKENS       // "gen_ai.usage.output_tokens"
 
 // Operation attributes
-GEN_AI_OPERATION_NAME           // "agent_cycle", "tool_call"
-GEN_AI_TOOL_NAME               // "calculator", "weather"
+GEN_AI_OPERATION_NAME            // "gen_ai.operation.name"
+GEN_AI_TOOL_NAME                 // "gen_ai.tool.name"
+
+// Stood-specific attributes
+STOOD_AGENT_ID                   // "stood.agent.id"
+STOOD_CONVERSATION_ID            // "stood.conversation.id"
+STOOD_CYCLE_ID                   // "stood.cycle.id"
 ```
 
-### Stood-Specific Attributes
-```rust
-// Agent identification
-STOOD_AGENT_ID                  // Unique agent instance ID
-STOOD_CONVERSATION_ID           // Conversation session ID
-STOOD_CYCLE_ID                 // Individual cycle ID
+## Examples
 
-// Performance tracking  
-STOOD_STREAMING_ENABLED         // Boolean streaming status
-STOOD_RETRY_ATTEMPT            // Retry attempt number
-STOOD_MODEL_SUPPORTS_TOOLS     // Tool capability flag
-```
+### 009_logging_demo
 
-## Cloud Provider Integration
-
-Based on environment variables, Stood can auto-detect some cloud provider endpoints:
-
-### Honeycomb
+Demonstrates file logging and performance tracing:
 
 ```bash
-export HONEYCOMB_API_KEY=your-key
-export OTEL_SERVICE_NAME=my-agent
+cargo run --example 009_logging_demo
 ```
 
-### New Relic
+### 023_telemetry Examples
 
-```bash
-export NEW_RELIC_LICENSE_KEY=your-key
-export OTEL_SERVICE_NAME=my-agent
-```
+Several telemetry examples are available in `examples/023_telemetry/`:
 
-### Datadog
-
-```bash
-export DD_API_KEY=your-key
-export DD_SITE=datadoghq.com  # or datadoghq.eu
-```
-
-### AWS X-Ray
-
-⚠️ **Auto-detection implemented but not extensively tested**
-
-```bash
-export AWS_REGION=us-east-1  # or your region
-export AWS_ACCESS_KEY_ID=your-key
-export AWS_SECRET_ACCESS_KEY=your-secret
-# OR
-export AWS_PROFILE=your-profile
-```
-
-### Google Cloud Trace
-
-⚠️ **Auto-detection implemented but not extensively tested**
-
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project-id
-# Requires proper GCP authentication (service account, gcloud auth, etc.)
-```
-
-### Custom Enterprise Endpoints
-
-⚠️ **Advanced feature - not extensively tested**
-
-```bash
-# Comma-separated list of endpoints (tested for availability)
-export STOOD_OTLP_ENDPOINTS=https://otlp.company.com:4318,https://backup.company.com:4318
-```
-
-## Prometheus Integration
-
-### Key Metrics Queries
-
-```promql
-# Agent performance
-rate(stood_agent_cycles_total[5m])
-histogram_quantile(0.95, rate(stood_agent_cycle_duration_seconds_bucket[5m]))
-
-# Token consumption
-rate(stood_model_tokens_input_total[5m])
-rate(stood_model_tokens_output_total[5m])
-
-# Tool execution
-rate(stood_tool_executions_total[5m])
-stood_tool_execution_duration_seconds
-
-# Error tracking
-rate(stood_agent_errors_total[5m])
-```
-
-### Alerting Rules
-
-```yaml
-groups:
-  - name: stood-agent-alerts
-    rules:
-      - alert: HighErrorRate
-        expr: rate(stood_agent_errors_total[5m]) / rate(stood_agent_cycles_total[5m]) > 0.05
-        for: 2m
-        annotations:
-          summary: "High error rate detected"
-          
-      - alert: HighLatency
-        expr: histogram_quantile(0.95, rate(stood_model_request_duration_seconds_bucket[5m])) > 10
-        for: 5m
-        annotations:
-          summary: "High model request latency"
-```
-
-## Complete Demo
-
-See the comprehensive telemetry demo at `examples/023_telemetry/` which includes:
-
-- **Full Observability Stack**: Prometheus, Grafana, Jaeger, OpenTelemetry Collector
-- **Pre-configured Dashboards**: Agent performance, token usage, error tracking
-- **Docker Compose Setup**: One-command deployment
-- **AWS Integration Examples**: CloudWatch and X-Ray configuration
-- **Production Patterns**: Batching, sampling, alerting
-
-### Quick Demo Start
-
-```bash
-cd examples/023_telemetry
-./setup-telemetry.sh
-cargo run --bin telemetry_demo
-```
-
-Then visit:
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9090
-- **Jaeger**: http://localhost:16686
+| Example | Description |
+|---------|-------------|
+| `simple_telemetry_test` | Basic telemetry initialization |
+| `smart_telemetry_test` | Auto-detection and fallback behavior |
+| `metrics_test` | Metrics collection with agent |
 
 ## See Also
 
 - [Architecture](architecture.md) - Overall system design
 - [Examples](examples.md) - Usage examples and tutorials
+- [Source Code](../src/telemetry/mod.rs) - Telemetry module implementation

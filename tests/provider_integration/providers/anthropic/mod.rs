@@ -7,7 +7,9 @@ pub async fn run_all_tests() -> Vec<crate::verification::shared::VerificationRes
     Vec::new()
 }
 
-pub async fn run_milestone_tests(_milestone: u8) -> Vec<crate::verification::shared::VerificationResult> {
+pub async fn run_milestone_tests(
+    _milestone: u8,
+) -> Vec<crate::verification::shared::VerificationResult> {
     println!("⏭️  Anthropic milestone tests not yet implemented");
     Vec::new()
 }

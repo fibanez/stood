@@ -15,42 +15,42 @@ impl TestPrompts {
     pub fn simple_chat() -> &'static str {
         "What is 2+2? Answer with just the number."
     }
-    
+
     /// Multi-turn conversation starter
     pub fn conversation_starter() -> &'static str {
         "My favorite number is 42. Please remember this for our conversation."
     }
-    
+
     /// Follow-up question for conversation context testing
     pub fn conversation_followup() -> &'static str {
         "What number did I just mention as my favorite?"
     }
-    
+
     /// Tool usage prompt for calculator
     pub fn calculator_request() -> &'static str {
         "What is 23 * 47? Use the calculator tool to compute this."
     }
-    
+
     /// Multiple tool usage prompt
     pub fn multiple_tools_request() -> &'static str {
         "Please tell me what time it is, then calculate 12 * 34. Use the appropriate tools."
     }
-    
+
     /// Complex agentic workflow prompt
     pub fn agentic_workflow() -> &'static str {
         "I need you to help me plan a birthday party. First, check what time it is. Then calculate how many pizza slices we need for 8 people (assuming 3 slices per person). Finally, tell me your recommendations."
     }
-    
+
     /// Streaming response test prompt
     pub fn streaming_request() -> &'static str {
         "Please write a short story about a robot learning to paint. Make it exactly 3 paragraphs long."
     }
-    
+
     /// Error handling test prompts
     pub fn invalid_tool_request() -> &'static str {
         "Please use the nonexistent_tool to do something impossible."
     }
-    
+
     /// Performance test prompt (longer response)
     pub fn performance_test() -> &'static str {
         "Explain the concept of machine learning in detail, covering supervised learning, unsupervised learning, and reinforcement learning. Provide examples for each."
@@ -65,22 +65,22 @@ impl ExpectedResponses {
     pub fn simple_math_result() -> &'static str {
         "4"
     }
-    
+
     /// Expected content for calculator tool usage
     pub fn calculator_result() -> &'static str {
         "1081" // 23 * 47
     }
-    
+
     /// Expected content for multiple calculation
     pub fn multiple_calculation_result() -> &'static str {
         "408" // 12 * 34
     }
-    
+
     /// Expected content patterns for conversation context
     pub fn conversation_context_patterns() -> Vec<&'static str> {
         vec!["42", "forty-two", "forty two"]
     }
-    
+
     /// Expected tool names for different test scenarios
     pub fn expected_tools() -> HashMap<&'static str, Vec<&'static str>> {
         let mut tools = HashMap::new();
@@ -101,7 +101,7 @@ impl TestToolData {
             "expression": "23 * 47"
         })
     }
-    
+
     /// Sample file operation input
     pub fn file_operation_input() -> Value {
         serde_json::json!({
@@ -109,7 +109,7 @@ impl TestToolData {
             "path": "/tmp/test.txt"
         })
     }
-    
+
     /// Sample HTTP request input
     pub fn http_request_input() -> Value {
         serde_json::json!({
@@ -131,7 +131,7 @@ impl ConversationFixtures {
         messages.add_assistant_message("I'm doing well, thank you! How can I help you today?");
         messages
     }
-    
+
     /// Create a conversation with tool usage
     pub fn tool_conversation() -> Messages {
         let mut messages = Messages::new();
@@ -140,18 +140,18 @@ impl ConversationFixtures {
         // Would normally include assistant's tool use and result here
         messages
     }
-    
+
     /// Create a long conversation for context testing
     pub fn long_conversation() -> Messages {
         let mut messages = Messages::new();
         messages.add_system_message("You are a helpful assistant.");
-        
+
         // Add multiple exchanges
         for i in 1..=5 {
             messages.add_user_message(&format!("This is message number {}", i));
             messages.add_assistant_message(&format!("I received your message number {}", i));
         }
-        
+
         messages
     }
 }
@@ -170,7 +170,7 @@ impl PerformanceFixtures {
         expectations.insert("agentic_workflow", (5.0, 60.0)); // 5s to 60s
         expectations
     }
-    
+
     /// Expected token usage ranges (approximate)
     pub fn token_usage_expectations() -> HashMap<&'static str, (usize, usize)> {
         let mut expectations = HashMap::new();
@@ -193,7 +193,7 @@ impl ErrorScenarios {
             ("dns_failure", "Simulate DNS resolution failure"),
         ]
     }
-    
+
     /// Model-related error scenarios
     pub fn model_errors() -> Vec<(&'static str, &'static str)> {
         vec![
@@ -202,7 +202,7 @@ impl ErrorScenarios {
             ("rate_limit", "Exceed rate limiting"),
         ]
     }
-    
+
     /// Tool-related error scenarios
     pub fn tool_errors() -> Vec<(&'static str, &'static str)> {
         vec![
@@ -225,7 +225,7 @@ impl ConfigTemplates {
         config.insert("max_parallel_tools", Value::Number(2.into()));
         config
     }
-    
+
     /// Thorough test configuration for comprehensive testing
     pub fn thorough_config() -> HashMap<&'static str, Value> {
         let mut config = HashMap::new();
@@ -234,7 +234,7 @@ impl ConfigTemplates {
         config.insert("max_parallel_tools", Value::Number(4.into()));
         config
     }
-    
+
     /// Performance test configuration
     pub fn performance_config() -> HashMap<&'static str, Value> {
         let mut config = HashMap::new();
@@ -259,11 +259,11 @@ impl TestDataHelpers {
             _ => Message::user(content), // Default to user
         }
     }
-    
+
     /// Create a conversation from a list of (role, content) pairs
     pub fn create_conversation(exchanges: Vec<(&str, &str)>) -> Messages {
         let mut messages = Messages::new();
-        
+
         for (role, content) in exchanges {
             match role {
                 "user" => messages.add_user_message(content),
@@ -272,26 +272,35 @@ impl TestDataHelpers {
                 _ => messages.add_user_message(content),
             }
         }
-        
+
         messages
     }
-    
+
     /// Generate random test data for stress testing
     pub fn generate_large_prompt(size_chars: usize) -> String {
-        let base_text = "This is a test prompt that will be repeated many times to create a large input. ";
+        let base_text =
+            "This is a test prompt that will be repeated many times to create a large input. ";
         let repetitions = (size_chars / base_text.len()) + 1;
         base_text.repeat(repetitions)[..size_chars].to_string()
     }
-    
+
     /// Create metadata for test tracking
-    pub fn create_test_metadata(test_name: &str, provider: &str, model: &str) -> HashMap<String, Value> {
+    pub fn create_test_metadata(
+        test_name: &str,
+        provider: &str,
+        model: &str,
+    ) -> HashMap<String, Value> {
         let mut metadata = HashMap::new();
-        metadata.insert("test_name".to_string(), Value::String(test_name.to_string()));
+        metadata.insert(
+            "test_name".to_string(),
+            Value::String(test_name.to_string()),
+        );
         metadata.insert("provider".to_string(), Value::String(provider.to_string()));
         metadata.insert("model".to_string(), Value::String(model.to_string()));
-        metadata.insert("timestamp".to_string(), Value::String(
-            chrono::Utc::now().to_rfc3339()
-        ));
+        metadata.insert(
+            "timestamp".to_string(),
+            Value::String(chrono::Utc::now().to_rfc3339()),
+        );
         metadata
     }
 }

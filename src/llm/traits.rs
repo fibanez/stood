@@ -10,107 +10,107 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Core LLM provider trait that abstracts away provider-specific implementations
-/// 
+///
 /// Providers own ALL implementation details including request formatting, response parsing,
 /// streaming, error handling, and authentication. Models are passed as model_id strings.
 #[async_trait]
 pub trait LlmProvider: Send + Sync + std::fmt::Debug {
     /// Basic chat without tools
     async fn chat(
-        &self, 
-        model_id: &str, 
-        messages: &Messages, 
-        config: &ChatConfig
+        &self,
+        model_id: &str,
+        messages: &Messages,
+        config: &ChatConfig,
     ) -> Result<ChatResponse, LlmError>;
-    
+
     /// Chat with tools
     async fn chat_with_tools(
         &self,
         model_id: &str,
-        messages: &Messages, 
-        tools: &[Tool], 
-        config: &ChatConfig
+        messages: &Messages,
+        tools: &[Tool],
+        config: &ChatConfig,
     ) -> Result<ChatResponse, LlmError>;
-    
+
     /// Streaming chat
     async fn chat_streaming(
         &self,
         model_id: &str,
-        messages: &Messages, 
-        config: &ChatConfig
+        messages: &Messages,
+        config: &ChatConfig,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError>;
-    
+
     /// Streaming chat with tools
     async fn chat_streaming_with_tools(
         &self,
         model_id: &str,
         messages: &Messages,
         tools: &[Tool],
-        config: &ChatConfig
+        config: &ChatConfig,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError>;
-    
+
     /// Health check
     async fn health_check(&self) -> Result<HealthStatus, LlmError>;
-    
+
     /// Provider-specific capabilities
     fn capabilities(&self) -> ProviderCapabilities;
-    
+
     /// Get provider type
     fn provider_type(&self) -> ProviderType;
-    
+
     /// List of model IDs supported by this provider
     fn supported_models(&self) -> Vec<&'static str>;
-    
+
     /// Downcast to concrete provider type for accessing provider-specific methods
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Model abstraction - pure metadata only, no logic
-/// 
+///
 /// Models are lightweight structs that only contain metadata about the model.
 /// ALL formatting, parsing, and request handling logic belongs in the Provider.
 /// This ensures clean separation of concerns in the provider-first architecture.
 pub trait LlmModel: Send + Sync {
     /// Unique model identifier used by the provider
     fn model_id(&self) -> &'static str;
-    
+
     /// Provider that hosts this model
     fn provider(&self) -> ProviderType;
-    
+
     /// Maximum context window in tokens
     fn context_window(&self) -> usize;
-    
+
     /// Maximum output tokens this model can generate
     fn max_output_tokens(&self) -> usize;
-    
+
     /// Model capabilities (what features it supports)
     fn capabilities(&self) -> ModelCapabilities;
-    
+
     /// Human-readable display name for the model (defaults to model_id)
     fn display_name(&self) -> &'static str {
         self.model_id()
     }
-    
+
     /// Default temperature for this model
     fn default_temperature(&self) -> f32 {
         0.7
     }
-    
+
     /// Default max tokens for this model
     fn default_max_tokens(&self) -> u32 {
         self.max_output_tokens() as u32
     }
-    
+
     /// Check if this model supports tool use
     fn supports_tool_use(&self) -> bool {
         self.capabilities().supports_tools
     }
-    
+
     /// Check if this model supports streaming
     fn supports_streaming(&self) -> bool {
         self.capabilities().supports_streaming
     }
-    
+
     /// Check if this model supports thinking mode
     fn supports_thinking(&self) -> bool {
         self.capabilities().supports_thinking
@@ -158,8 +158,8 @@ impl std::fmt::Display for ProviderType {
 }
 
 /// Internal chat configuration for LLM requests (not user-facing)
-/// 
-/// This is used internally to translate from the user-facing `AgentConfig` 
+///
+/// This is used internally to translate from the user-facing `AgentConfig`
 /// to provider-specific request parameters. Users should continue using
 /// `AgentConfig` and `Agent::Builder` for configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,15 +248,15 @@ pub enum ContentBlockType {
 /// Content block delta for universal streaming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentBlockDelta {
-    Text { 
-        text: String 
+    Text {
+        text: String,
     },
-    ToolUse { 
-        tool_call_id: String, 
-        input_delta: String 
+    ToolUse {
+        tool_call_id: String,
+        input_delta: String,
     },
-    Thinking { 
-        reasoning_delta: String 
+    Thinking {
+        reasoning_delta: String,
     },
 }
 
@@ -265,59 +265,37 @@ pub enum ContentBlockDelta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
     /// Content block starts (universal pattern)
-    ContentBlockStart { 
+    ContentBlockStart {
         block_type: ContentBlockType,
         block_index: usize,
     },
     /// Content block delta (universal pattern)
-    ContentBlockDelta { 
+    ContentBlockDelta {
         delta: ContentBlockDelta,
         block_index: usize,
     },
     /// Content block stops (universal pattern)
-    ContentBlockStop { 
-        block_index: usize,
-    },
+    ContentBlockStop { block_index: usize },
     /// Message starts
-    MessageStart {
-        role: crate::types::MessageRole,
-    },
+    MessageStart { role: crate::types::MessageRole },
     /// Message stops
-    MessageStop {
-        stop_reason: Option<String>,
-    },
+    MessageStop { stop_reason: Option<String> },
     /// Stream metadata (usage, etc.)
-    Metadata {
-        usage: Option<Usage>,
-    },
+    Metadata { usage: Option<Usage> },
     /// Error in stream
-    Error {
-        error: String,
-    },
-    
+    Error { error: String },
+
     // Legacy events for backward compatibility - will be deprecated
     /// @deprecated Use ContentBlockDelta with Text variant
-    ContentDelta { 
-        delta: String,
-        index: usize,
-    },
+    ContentDelta { delta: String, index: usize },
     /// @deprecated Use ContentBlockStart with ToolUse type
-    ToolCallStart {
-        tool_call: ToolCall,
-    },
+    ToolCallStart { tool_call: ToolCall },
     /// @deprecated Use ContentBlockDelta with ToolUse variant
-    ToolCallDelta {
-        tool_call_id: String,
-        delta: String,
-    },
+    ToolCallDelta { tool_call_id: String, delta: String },
     /// @deprecated Use ContentBlockDelta with Thinking variant
-    ThinkingDelta {
-        delta: String,
-    },
+    ThinkingDelta { delta: String },
     /// @deprecated Use MessageStop or Metadata
-    Done {
-        usage: Option<Usage>,
-    },
+    Done { usage: Option<Usage> },
 }
 
 /// Usage statistics
@@ -363,47 +341,41 @@ pub struct ModelCapabilities {
 #[derive(Debug, thiserror::Error)]
 pub enum LlmError {
     #[error("Provider error: {message}")]
-    ProviderError { 
+    ProviderError {
         provider: ProviderType,
         message: String,
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
-    
+
     #[error("Model not found: {model_id}")]
-    ModelNotFound { 
+    ModelNotFound {
         model_id: String,
         provider: ProviderType,
     },
-    
+
     #[error("Authentication failed for provider {provider:?}")]
-    AuthenticationError { 
-        provider: ProviderType,
-    },
-    
+    AuthenticationError { provider: ProviderType },
+
     #[error("Rate limit exceeded for provider {provider:?}")]
-    RateLimitError { 
+    RateLimitError {
         provider: ProviderType,
         retry_after: Option<u64>,
     },
-    
+
     #[error("Configuration error: {message}")]
-    ConfigurationError { 
-        message: String,
-    },
-    
+    ConfigurationError { message: String },
+
     #[error("Network error: {message}")]
-    NetworkError { 
+    NetworkError {
         message: String,
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
-    
+
     #[error("Serialization error: {message}")]
-    SerializationError { 
-        message: String,
-    },
-    
+    SerializationError { message: String },
+
     #[error("Unsupported feature: {feature} for provider {provider:?}")]
-    UnsupportedFeature { 
+    UnsupportedFeature {
         feature: String,
         provider: ProviderType,
     },
@@ -414,31 +386,31 @@ mod tests {
     use super::*;
 
     // Failing tests to be implemented as we build the architecture
-    
+
     #[tokio::test]
     async fn test_llm_provider_trait_basic_chat() {
         // This test will fail until we implement a test provider
         panic!("LlmProvider trait basic chat not implemented yet");
     }
-    
+
     #[tokio::test]
     async fn test_llm_provider_trait_streaming() {
         // This test will fail until we implement streaming
         panic!("LlmProvider trait streaming not implemented yet");
     }
-    
+
     #[tokio::test]
     async fn test_llm_model_trait_capabilities() {
         // This test will fail until we implement model trait
         panic!("LlmModel trait capabilities not implemented yet");
     }
-    
+
     #[test]
     fn test_stream_event_serialization() {
         // This test will fail until we implement proper serialization
         panic!("StreamEvent serialization not implemented yet");
     }
-    
+
     #[test]
     fn test_error_type_conversion() {
         // This test will fail until we implement error conversion

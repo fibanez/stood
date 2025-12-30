@@ -3,11 +3,11 @@
 //! This module provides configurable retry logic with exponential backoff
 //! to handle temporary failures like model loading delays in LM Studio.
 
+use crate::llm::traits::LlmError;
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::time::sleep;
-use crate::llm::traits::LlmError;
 
 /// Configuration for retry behavior with exponential backoff
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -29,10 +29,10 @@ impl RetryConfig {
     pub fn lm_studio_default() -> Self {
         Self {
             max_attempts: 3,
-            initial_delay: Duration::from_millis(1000),  // Start with 1 second
-            max_delay: Duration::from_secs(30),          // Cap at 30 seconds
-            backoff_multiplier: 2.0,                     // Double each time
-            jitter: true,                                // Add randomness
+            initial_delay: Duration::from_millis(1000), // Start with 1 second
+            max_delay: Duration::from_secs(30),         // Cap at 30 seconds
+            backoff_multiplier: 2.0,                    // Double each time
+            jitter: true,                               // Add randomness
         }
     }
 
@@ -93,9 +93,9 @@ pub fn calculate_backoff_delay(attempt: u32, config: &RetryConfig) -> Duration {
     let base_delay = config.initial_delay.as_millis() as f64;
     let multiplier = config.backoff_multiplier.powi(attempt as i32);
     let delay_ms = (base_delay * multiplier) as u64;
-    
+
     let delay = Duration::from_millis(delay_ms).min(config.max_delay);
-    
+
     if config.jitter {
         add_jitter(delay)
     } else {
@@ -107,20 +107,20 @@ pub fn calculate_backoff_delay(attempt: u32, config: &RetryConfig) -> Duration {
 fn add_jitter(delay: Duration) -> Duration {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    
+
     // Simple pseudo-random jitter based on current timestamp
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    
+
     let mut hasher = DefaultHasher::new();
     now.hash(&mut hasher);
     let hash = hasher.finish();
-    
+
     // Add ±25% jitter
     let jitter_factor = 0.75 + 0.5 * ((hash % 1000) as f64 / 1000.0);
     let jittered_ms = (delay.as_millis() as f64 * jitter_factor) as u64;
-    
+
     Duration::from_millis(jittered_ms)
 }
 
@@ -129,28 +129,29 @@ pub fn should_retry_llm_error(error: &LlmError) -> RetryDecision {
     match error {
         // Network and connection errors - often transient
         LlmError::NetworkError { .. } => RetryDecision::Retry,
-        
+
         // Provider errors that might be due to model loading
         LlmError::ProviderError { message, .. } => {
             let msg = message.to_lowercase();
-            
+
             // Retry on connection-related errors
-            if msg.contains("connection refused") 
+            if msg.contains("connection refused")
                 || msg.contains("connection reset")
                 || msg.contains("timeout")
                 || msg.contains("service unavailable")
                 || msg.contains("bad gateway")
                 || msg.contains("502")
-                || msg.contains("503") {
+                || msg.contains("503")
+            {
                 RetryDecision::Retry
             } else {
                 RetryDecision::FailImmediately
             }
-        },
-        
+        }
+
         // Rate limiting - should respect retry_after but can retry
         LlmError::RateLimitError { .. } => RetryDecision::Retry,
-        
+
         // These errors are not transient - don't retry
         LlmError::ConfigurationError { .. } => RetryDecision::FailImmediately,
         LlmError::AuthenticationError { .. } => RetryDecision::FailImmediately,
@@ -170,7 +171,7 @@ where
     F: FnMut() -> BoxFuture<'static, Result<T, E>>,
 {
     let mut _last_error: Option<E> = None;
-    
+
     // Initial attempt (attempt 0)
     match operation().await {
         Ok(result) => return Ok(result),
@@ -181,20 +182,20 @@ where
             _last_error = Some(error);
         }
     }
-    
+
     // Retry attempts (attempts 1 through max_attempts)
     for attempt in 1..=config.max_attempts {
         let delay = calculate_backoff_delay(attempt - 1, config);
-        
+
         tracing::debug!(
             "🔄 Retrying operation after {} ms (attempt {}/{})",
             delay.as_millis(),
             attempt,
             config.max_attempts
         );
-        
+
         sleep(delay).await;
-        
+
         match operation().await {
             Ok(result) => {
                 tracing::info!("✅ Operation succeeded on retry attempt {}", attempt);
@@ -202,29 +203,32 @@ where
             }
             Err(error) => {
                 if should_retry(&error) == RetryDecision::FailImmediately {
-                    tracing::warn!("❌ Operation failed with non-retryable error on attempt {}", attempt);
+                    tracing::warn!(
+                        "❌ Operation failed with non-retryable error on attempt {}",
+                        attempt
+                    );
                     return Err(error);
                 }
-                
+
                 if attempt == config.max_attempts {
-                    tracing::error!("❌ Operation failed after {} retry attempts", config.max_attempts);
+                    tracing::error!(
+                        "❌ Operation failed after {} retry attempts",
+                        config.max_attempts
+                    );
                     return Err(error);
                 }
-                
+
                 _last_error = Some(error);
             }
         }
     }
-    
+
     // This should never be reached, but handle it gracefully
     Err(_last_error.unwrap())
 }
 
 /// Convenience function for retrying LlmError operations
-pub async fn retry_llm_operation<F, T>(
-    operation: F,
-    config: &RetryConfig,
-) -> Result<T, LlmError>
+pub async fn retry_llm_operation<F, T>(operation: F, config: &RetryConfig) -> Result<T, LlmError>
 where
     F: FnMut() -> BoxFuture<'static, Result<T, LlmError>>,
 {
@@ -256,9 +260,18 @@ mod tests {
             max_attempts: 5,
         };
 
-        assert_eq!(calculate_backoff_delay(0, &config), Duration::from_millis(100));
-        assert_eq!(calculate_backoff_delay(1, &config), Duration::from_millis(200));
-        assert_eq!(calculate_backoff_delay(2, &config), Duration::from_millis(400));
+        assert_eq!(
+            calculate_backoff_delay(0, &config),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            calculate_backoff_delay(1, &config),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            calculate_backoff_delay(2, &config),
+            Duration::from_millis(400)
+        );
     }
 
     #[test]
@@ -280,9 +293,9 @@ mod tests {
     async fn test_successful_operation_no_retry() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let config = RetryConfig::default();
-        
+
         let result = retry_with_backoff(
             move || {
                 let counter = counter_clone.clone();
@@ -293,8 +306,9 @@ mod tests {
             },
             &config,
             |_| RetryDecision::Retry,
-        ).await;
-        
+        )
+        .await;
+
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 1); // Only called once
     }
@@ -303,7 +317,7 @@ mod tests {
     async fn test_retry_with_eventual_success() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let config = RetryConfig {
             max_attempts: 3,
             initial_delay: Duration::from_millis(1), // Fast for testing
@@ -311,7 +325,7 @@ mod tests {
             backoff_multiplier: 2.0,
             jitter: false,
         };
-        
+
         let result = retry_with_backoff(
             move || {
                 let counter = counter_clone.clone();
@@ -326,8 +340,9 @@ mod tests {
             },
             &config,
             |_| RetryDecision::Retry,
-        ).await;
-        
+        )
+        .await;
+
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3); // Called 3 times total
     }
@@ -336,7 +351,7 @@ mod tests {
     async fn test_max_attempts_exhausted() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let config = RetryConfig {
             max_attempts: 2,
             initial_delay: Duration::from_millis(1),
@@ -344,7 +359,7 @@ mod tests {
             backoff_multiplier: 2.0,
             jitter: false,
         };
-        
+
         let result = retry_with_backoff(
             move || {
                 let counter = counter_clone.clone();
@@ -355,8 +370,9 @@ mod tests {
             },
             &config,
             |_| RetryDecision::Retry,
-        ).await;
-        
+        )
+        .await;
+
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 3); // Initial + 2 retries
     }
@@ -365,9 +381,9 @@ mod tests {
     async fn test_non_retryable_error() {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
-        
+
         let config = RetryConfig::default();
-        
+
         let result = retry_with_backoff(
             move || {
                 let counter = counter_clone.clone();
@@ -378,8 +394,9 @@ mod tests {
             },
             &config,
             |_| RetryDecision::FailImmediately,
-        ).await;
-        
+        )
+        .await;
+
         assert!(result.is_err());
         assert_eq!(counter.load(Ordering::SeqCst), 1); // Only called once
     }

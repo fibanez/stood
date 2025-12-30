@@ -1,66 +1,50 @@
 //! Simple Telemetry Test
-//! 
-//! This is a minimal test to verify telemetry is working end-to-end.
+//!
+//! This is a minimal test to verify telemetry configuration works.
+//!
+//! Run with: cargo run --example 023_simple_telemetry_test
 
 use stood::telemetry::TelemetryConfig;
 
-#[tokio::main] 
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::fmt::init();
-    
-    println!("🧪 Simple Telemetry Test");
+
+    println!("Simple Telemetry Test");
     println!("========================");
-    
-    // Test smart auto-detection
-    println!("\n📋 Testing smart telemetry auto-detection...");
-    let config = TelemetryConfig::from_env();
-    
+
+    // Test CloudWatch telemetry configuration
+    println!("\nTesting CloudWatch telemetry configuration...");
+
+    // Create a CloudWatch config (disabled by default until AWS is configured)
+    let config = TelemetryConfig::disabled();
+
     println!("Telemetry Config:");
-    println!("  Enabled: {}", config.enabled);
-    println!("  OTLP Endpoint: {:?}", config.otlp_endpoint);
-    println!("  Console Export: {}", config.console_export);
-    println!("  Service Name: {}", config.service_name);
-    
-    // Try to initialize telemetry (always enabled)
-    {
-        use stood::telemetry::StoodTracer;
-        
-        println!("\n📊 Initializing telemetry...");
-        match StoodTracer::init(config) {
-            Ok(Some(tracer)) => {
-                println!("✅ Telemetry initialized successfully!");
-                
-                // Create a test span
-                let mut span = tracer.start_agent_span("test_operation");
-                span.set_attribute("test.type", "simple_test");
-                span.set_attribute("test.value", 42);
-                
-                // Simulate some work
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                
-                span.set_success();
-                span.finish();
-                
-                println!("✅ Test span created and finished");
-                
-                // Wait a bit for telemetry to be exported
-                println!("⏳ Waiting for telemetry export...");
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                
-                // Shutdown gracefully
-                tracer.shutdown();
-                println!("✅ Telemetry shutdown complete");
-            }
-            Ok(None) => {
-                println!("⚠️ Telemetry disabled (no endpoints available)");
-            }
-            Err(e) => {
-                println!("❌ Telemetry initialization failed: {}", e);
-            }
-        }
-    }
-    
-    println!("\n🎯 Test complete!");
+    println!("  Enabled: {}", config.is_enabled());
+    println!("  Service Name: {:?}", config.service_name());
+    println!("  Log Level: {:?}", config.log_level());
+
+    // Test CloudWatch variant (region only)
+    println!("\nTesting CloudWatch variant (region only)...");
+    let cloudwatch_config = TelemetryConfig::cloudwatch("us-east-1");
+    println!("  Enabled: {}", cloudwatch_config.is_enabled());
+    println!("  Service Name: {:?}", cloudwatch_config.service_name());
+
+    // Test CloudWatch variant with service name
+    println!("\nTesting CloudWatch variant (with service name)...");
+    let cloudwatch_config = TelemetryConfig::cloudwatch_with_service("us-east-1", "test-service");
+    println!("  Enabled: {}", cloudwatch_config.is_enabled());
+    println!("  Service Name: {:?}", cloudwatch_config.service_name());
+
+    println!("\nTest complete!");
+    println!("To use CloudWatch telemetry:");
+    println!("   1. Configure AWS credentials (environment, profile, or IAM role)");
+    println!("   2. Enable Transaction Search in CloudWatch Console");
+    println!("   3. Set trace destination to CloudWatch Logs");
+    println!(
+        "   4. Use TelemetryConfig::cloudwatch(region) or cloudwatch_with_service(region, name)"
+    );
+
     Ok(())
 }

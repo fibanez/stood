@@ -15,7 +15,10 @@ mod tests {
         let model = Bedrock::ClaudeSonnet45;
 
         // Verify model metadata is correct
-        assert_eq!(model.model_id(), "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
+        assert_eq!(
+            model.model_id(),
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        );
         assert_eq!(model.provider(), crate::llm::traits::ProviderType::Bedrock);
         assert_eq!(model.context_window(), 200_000);
         assert_eq!(model.max_output_tokens(), 8_192);
@@ -51,9 +54,18 @@ mod tests {
         let nova_lite = Bedrock::NovaLite;
 
         // Verify model IDs are correct
-        assert_eq!(sonnet.model_id(), "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
-        assert_eq!(haiku.model_id(), "us.anthropic.claude-haiku-4-5-20251001-v1:0");
-        assert_eq!(opus.model_id(), "us.anthropic.claude-opus-4-5-20251101-v1:0");
+        assert_eq!(
+            sonnet.model_id(),
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        );
+        assert_eq!(
+            haiku.model_id(),
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        );
+        assert_eq!(
+            opus.model_id(),
+            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        );
         assert_eq!(nova_lite.model_id(), "us.amazon.nova-lite-v1:0");
     }
 

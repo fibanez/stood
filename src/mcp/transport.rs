@@ -77,7 +77,7 @@ pub type MessageSink = Pin<Box<dyn Sink<MCPMessage, Error = MCPOperationError> +
 pub struct TransportStreams {
     /// Stream for receiving messages from the MCP server
     pub read_stream: MessageStream,
-    /// Sink for sending messages to the MCP server  
+    /// Sink for sending messages to the MCP server
     pub write_stream: MessageSink,
 }
 
@@ -482,7 +482,7 @@ impl StdioTransport {
     }
 
     /// Create a StdioTransport from existing stdin/stdout handles
-    /// 
+    ///
     /// This is useful for testing scenarios where you have already spawned
     /// a process and want to create a transport from its handles.
     pub fn from_handles(
@@ -604,16 +604,17 @@ impl StdioTransport {
 
         // Create read stream
         let read_stream: MessageStream = Box::pin(
-            tokio_stream::wrappers::UnboundedReceiverStream::new(read_rx)
+            tokio_stream::wrappers::UnboundedReceiverStream::new(read_rx),
         );
 
         // Create write sink
-        let write_sink: MessageSink = Box::pin(futures::sink::unfold(write_tx, |tx, msg| async move {
-            match tx.send(msg) {
-                Ok(()) => Ok(tx),
-                Err(_) => Err(MCPOperationError::connection_lost("Write channel closed")),
-            }
-        }));
+        let write_sink: MessageSink =
+            Box::pin(futures::sink::unfold(write_tx, |tx, msg| async move {
+                match tx.send(msg) {
+                    Ok(()) => Ok(tx),
+                    Err(_) => Err(MCPOperationError::connection_lost("Write channel closed")),
+                }
+            }));
 
         self.connected = true;
 

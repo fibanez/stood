@@ -47,39 +47,52 @@ async fn test_lm_studio_quote_handling() {
                         if let Some(function) = call.get("function") {
                             if let Some(name) = function.get("name").and_then(|n| n.as_str()) {
                                 // Test our new logic
-                                let parsed_args: serde_json::Value = match function.get("arguments") {
+                                let parsed_args: serde_json::Value = match function.get("arguments")
+                                {
                                     Some(serde_json::Value::String(s)) => {
                                         println!("📄 Raw arguments string: {}", s);
                                         match serde_json::from_str(s) {
                                             Ok(parsed) => {
-                                                println!("✅ Successfully parsed arguments: {}", serde_json::to_string_pretty(&parsed).unwrap());
+                                                println!(
+                                                    "✅ Successfully parsed arguments: {}",
+                                                    serde_json::to_string_pretty(&parsed).unwrap()
+                                                );
                                                 parsed
-                                            },
+                                            }
                                             Err(e) => {
                                                 println!("❌ Failed to parse arguments: {}", e);
                                                 serde_json::Value::String(s.clone())
                                             }
                                         }
-                                    },
+                                    }
                                     Some(obj) => {
-                                        println!("📦 Arguments already parsed as object: {}", serde_json::to_string_pretty(obj).unwrap());
+                                        println!(
+                                            "📦 Arguments already parsed as object: {}",
+                                            serde_json::to_string_pretty(obj).unwrap()
+                                        );
                                         obj.clone()
-                                    },
+                                    }
                                     None => {
                                         println!("🚫 No arguments found");
                                         serde_json::Value::Object(serde_json::Map::new())
-                                    },
+                                    }
                                 };
 
                                 println!("🔧 Tool: {}", name);
-                                println!("📝 Final parsed arguments: {}", serde_json::to_string_pretty(&parsed_args).unwrap());
-                                
+                                println!(
+                                    "📝 Final parsed arguments: {}",
+                                    serde_json::to_string_pretty(&parsed_args).unwrap()
+                                );
+
                                 // Verify the arguments are now a proper JSON object
                                 if let serde_json::Value::Object(map) = &parsed_args {
                                     if let Some(location) = map.get("location") {
                                         if let serde_json::Value::String(loc_str) = location {
                                             assert_eq!(loc_str, "San Francisco");
-                                            println!("✅ Successfully extracted location: {}", loc_str);
+                                            println!(
+                                                "✅ Successfully extracted location: {}",
+                                                loc_str
+                                            );
                                         } else {
                                             panic!("❌ Location is not a string: {:?}", location);
                                         }

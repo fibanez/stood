@@ -46,7 +46,7 @@ impl HealthHttpServer {
         info!("Starting health check HTTP server on {}", bind_addr);
 
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-        
+
         axum::serve(listener, app.into_make_service()).await?;
 
         Ok(())
@@ -55,7 +55,7 @@ impl HealthHttpServer {
     /// Create the router with all health check endpoints
     fn create_router(&self) -> Router<Arc<Mutex<HealthChecker>>> {
         let state = self.health_checker.clone();
-        
+
         let mut router = Router::new()
             .route("/health", get(health_handler))
             .with_state(state);
@@ -136,7 +136,7 @@ async fn liveness_handler(
 ) -> Result<Json<Value>, StatusCode> {
     let checker = health_checker.lock().await;
     let is_alive = checker.is_alive().await;
-    
+
     if is_alive {
         Ok(Json(json!({
             "status": "alive",
@@ -154,7 +154,7 @@ async fn readiness_handler(
 ) -> Result<Json<Value>, StatusCode> {
     let mut checker = health_checker.lock().await;
     let is_ready = checker.is_ready().await;
-    
+
     if is_ready {
         Ok(Json(json!({
             "status": "ready",
@@ -172,16 +172,16 @@ async fn metrics_handler(
 ) -> Result<String, StatusCode> {
     let checker = health_checker.lock().await;
     let summary = checker.last_health_summary();
-    
+
     let mut metrics = String::new();
-    
+
     // Overall health status metric
     let overall_status_value = match summary.status {
         HealthStatus::Healthy => 1,
         HealthStatus::Degraded => 0,
         HealthStatus::Unhealthy => -1,
     };
-    
+
     metrics.push_str(&format!(
         "# HELP stood_health_status Overall health status (-1=unhealthy, 0=degraded, 1=healthy)\n"
     ));
@@ -191,7 +191,7 @@ async fn metrics_handler(
     metrics.push_str(&format!(
         "stood_health_status {}\n"
     , overall_status_value));
-    
+
     // Individual check metrics
     metrics.push_str(&format!(
         "# HELP stood_health_check_status Individual health check status (0=unhealthy, 1=healthy)\n"
@@ -199,20 +199,20 @@ async fn metrics_handler(
     metrics.push_str(&format!(
         "# TYPE stood_health_check_status gauge\n"
     ));
-    
+
     for (name, result) in &summary.checks {
         let status_value = match result.status {
             HealthStatus::Healthy => 1,
             HealthStatus::Degraded => 1, // Still consider as healthy for binary metrics
             HealthStatus::Unhealthy => 0,
         };
-        
+
         metrics.push_str(&format!(
             "stood_health_check_status{{check=\"{}\"}} {}\n",
             name, status_value
         ));
     }
-    
+
     // Check duration metrics
     metrics.push_str(&format!(
         "# HELP stood_health_check_duration_seconds Duration of health checks in seconds\n"
@@ -220,14 +220,14 @@ async fn metrics_handler(
     metrics.push_str(&format!(
         "# TYPE stood_health_check_duration_seconds gauge\n"
     ));
-    
+
     for (name, result) in &summary.checks {
         metrics.push_str(&format!(
             "stood_health_check_duration_seconds{{check=\"{}\"}} {:.6}\n",
             name, result.duration.as_secs_f64()
         ));
     }
-    
+
     Ok(metrics)
 }
 
@@ -262,9 +262,9 @@ mod tests {
         let config = StoodConfig::default();
         let health_checker = HealthChecker::from_config(&config);
         let http_config = super::super::HttpConfig::default();
-        
+
         let _server = HealthHttpServer::new(health_checker, http_config);
-        
+
         // Just verify we can create the server
         // Actually starting it would require binding to a port
         assert!(true);
@@ -281,9 +281,9 @@ mod tests {
         let config = StoodConfig::default();
         let health_checker = HealthChecker::from_config(&config);
         let http_config = super::super::HttpConfig::default();
-        
+
         let server = HealthHttpServer::new(health_checker, http_config);
-        
+
         // Should return error when HTTP feature is disabled
         let result = server.start().await;
         assert!(result.is_err());

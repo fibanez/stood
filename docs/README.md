@@ -74,14 +74,14 @@ Unified tool system with compile-time validation:
 
 📚 [View Tools Module API Documentation](../src/tools/mod.rs)
 
-### Bedrock Module
+### Bedrock Provider
 AWS Bedrock client with enterprise features:
 - Native Claude 3/4 and Nova model support
 - Streaming responses and token management
 - Comprehensive retry logic and error handling
 - Performance optimization and connection pooling
 
-📚 [View Bedrock Module API Documentation](../src/bedrock/mod.rs)
+📚 [View Bedrock Provider Documentation](../src/llm/providers/bedrock.rs)
 
 ### MCP Module
 Model Context Protocol integration for external tools:
@@ -102,12 +102,11 @@ Production-grade performance optimization for high-throughput deployments:
 📚 [View Performance Module API Documentation](../src/performance/mod.rs)
 
 ### Telemetry Module
-Enterprise-grade observability with OpenTelemetry integration:
-- Comprehensive metrics collection for agent performance monitoring
-- Distributed tracing with GenAI semantic conventions
-- Smart auto-detection of OTLP endpoints with graceful fallbacks
-- Token usage tracking and comprehensive debug logging
+Observability for AI agent performance monitoring:
+- File logging with `LoggingConfig` and `PerformanceTracer`
+- Metrics collection with `EventLoopMetrics`, `CycleMetrics`, `TokenUsage`
+- GenAI semantic conventions for OpenTelemetry compatibility
+- CloudWatch Gen AI integration under active development
 
 📚 [View Telemetry Module API Documentation](../src/telemetry/mod.rs)
-📊 [Complete Telemetry Demo](../examples/023_telemetry/README.md)
 

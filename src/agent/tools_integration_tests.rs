@@ -8,9 +8,9 @@
 //! NOTE: These tests require valid AWS credentials and Bedrock access.
 
 use crate::agent::Agent;
+use crate::llm::models::Bedrock;
 use crate::tools::builtin::create_builtin_tools;
 use crate::tools::{ExecutorConfig, ToolExecutor, ToolUse};
-use crate::llm::models::Bedrock;
 use serde_json::json;
 use std::env;
 
@@ -43,7 +43,8 @@ async fn test_agent_with_builtin_tools_registry() {
         .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You are a helpful assistant with access to tools.")
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     // Create built-in tools registry
     let registry = create_builtin_tools()
@@ -178,7 +179,8 @@ async fn test_parallel_tool_execution_with_agent() {
         .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You coordinate multiple tool executions and summarize results.")
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     // Create tools and executor
     let registry = create_builtin_tools()
@@ -216,7 +218,9 @@ async fn test_parallel_tool_execution_with_agent() {
     // Execute tools in parallel using the new API
     let mut results = Vec::new();
     for tool_use in &tool_uses {
-        let result = registry.execute_tool(&tool_use.name, Some(tool_use.input.clone()), None).await;
+        let result = registry
+            .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
+            .await;
         results.push(result);
     }
 
@@ -239,9 +243,7 @@ async fn test_parallel_tool_execution_with_agent() {
 
     println!(
         "⚡ Parallel results - Calc1: {}, Calc2: {}, Env success: {}",
-        calc1_result.content,
-        calc2_result.content,
-        env_result.success
+        calc1_result.content, calc2_result.content, env_result.success
     );
 
     // Step 3: Agent summarizes parallel execution results
@@ -275,7 +277,8 @@ async fn test_error_handling_in_agent_tool_workflow() {
         .model(Bedrock::ClaudeHaiku45)
         .system_prompt("You help users understand and handle tool execution errors.")
         .build()
-        .await.expect("Failed to build agent");
+        .await
+        .expect("Failed to build agent");
 
     let registry = create_builtin_tools()
         .await

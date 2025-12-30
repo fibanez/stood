@@ -8,7 +8,7 @@ use super::config::PrintingConfig;
 use super::error::CallbackError;
 use super::events::{CallbackEvent, ToolEvent};
 use super::traits::CallbackHandler;
-use crate::agent::result::{AgentResult};
+use crate::agent::result::AgentResult;
 #[allow(unused_imports)] // Used in future callback features
 use crate::agent::result::ToolCallSummary;
 use crate::error::StoodError;
@@ -588,4 +588,3 @@ mod tests {
         assert!(handler.handle_event(error_event).await.is_ok());
     }
 }
-

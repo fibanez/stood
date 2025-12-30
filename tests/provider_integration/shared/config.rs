@@ -48,49 +48,49 @@ impl TestConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Set the provider type
     pub fn provider(mut self, provider: ProviderType) -> Self {
         self.provider = Some(provider);
         self
     }
-    
+
     /// Set the model ID
     pub fn model_id(mut self, model_id: impl Into<String>) -> Self {
         self.model_id = Some(model_id.into());
         self
     }
-    
+
     /// Set the timeout duration
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
-    
+
     /// Set max retries
     pub fn max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
         self
     }
-    
+
     /// Enable or disable telemetry
     pub fn telemetry(mut self, enabled: bool) -> Self {
         self.enable_telemetry = enabled;
         self
     }
-    
+
     /// Enable or disable streaming
     pub fn streaming(mut self, enabled: bool) -> Self {
         self.enable_streaming = enabled;
         self
     }
-    
+
     /// Set max parallel tools
     pub fn max_parallel_tools(mut self, count: usize) -> Self {
         self.max_parallel_tools = count;
         self
     }
-    
+
     /// Load configuration from environment variables
     pub fn from_env(mut self) -> Self {
         // Load timeout from environment
@@ -99,28 +99,30 @@ impl TestConfigBuilder {
                 self.timeout = Some(Duration::from_secs(timeout_secs));
             }
         }
-        
+
         // Load max parallel tools from environment
         if let Ok(parallel_str) = env::var(ENV_VERIFICATION_MAX_PARALLEL_TOOLS) {
             if let Ok(parallel_count) = parallel_str.parse::<usize>() {
                 self.max_parallel_tools = parallel_count;
             }
         }
-        
+
         // Load model ID from environment
         if let Ok(model_id) = env::var(ENV_VERIFICATION_MODEL) {
             self.model_id = Some(model_id);
         }
-        
+
         self
     }
-    
+
     /// Build the test configuration
     pub fn build(self) -> Result<TestConfig, String> {
         let provider = self.provider.ok_or("Provider must be specified")?;
-        let model_id = self.model_id.unwrap_or_else(|| default_model_for_provider(provider));
+        let model_id = self
+            .model_id
+            .unwrap_or_else(|| default_model_for_provider(provider));
         let timeout = self.timeout.unwrap_or(Duration::from_secs(30));
-        
+
         let config = TestConfig {
             provider,
             model_id,
@@ -130,10 +132,10 @@ impl TestConfigBuilder {
             enable_streaming: self.enable_streaming,
             max_parallel_tools: self.max_parallel_tools,
         };
-        
+
         // Validate the configuration
         super::assertions::validate_test_config(&config)?;
-        
+
         Ok(config)
     }
 }
@@ -202,7 +204,7 @@ pub fn create_config_for_model(provider: ProviderType, model_id: &str) -> TestCo
         ProviderType::LmStudio => Duration::from_secs(60), // Local models need more time
         _ => Duration::from_secs(30),
     };
-    
+
     TestConfig {
         provider,
         model_id: model_id.to_string(),
@@ -227,7 +229,7 @@ impl ProviderChecker {
     pub async fn check_lm_studio() -> bool {
         let base_url = env::var(ENV_LM_STUDIO_BASE_URL)
             .unwrap_or_else(|_| "http://localhost:1234".to_string());
-        
+
         // Try to connect to LM Studio API
         let client = reqwest::Client::new();
         let response = client
@@ -235,30 +237,30 @@ impl ProviderChecker {
             .timeout(Duration::from_secs(5))
             .send()
             .await;
-        
+
         match response {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
     }
-    
+
     /// Check if AWS Bedrock credentials are available
     pub fn check_bedrock_credentials() -> bool {
         // Check for AWS credentials
         env::var(ENV_AWS_ACCESS_KEY_ID).is_ok() && env::var(ENV_AWS_SECRET_ACCESS_KEY).is_ok()
             || env::var(ENV_AWS_PROFILE).is_ok()
     }
-    
+
     /// Check if Anthropic API key is available
     pub fn check_anthropic_credentials() -> bool {
         env::var(ENV_ANTHROPIC_API_KEY).is_ok()
     }
-    
+
     /// Check if OpenAI API key is available
     pub fn check_openai_credentials() -> bool {
         env::var(ENV_OPENAI_API_KEY).is_ok()
     }
-    
+
     /// Check if Ollama is available
     pub async fn check_ollama() -> bool {
         let client = reqwest::Client::new();
@@ -267,37 +269,37 @@ impl ProviderChecker {
             .timeout(Duration::from_secs(5))
             .send()
             .await;
-        
+
         match response {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
     }
-    
+
     /// Get all available providers
     pub async fn get_available_providers() -> Vec<ProviderType> {
         let mut available = Vec::new();
-        
+
         if Self::check_lm_studio().await {
             available.push(ProviderType::LmStudio);
         }
-        
+
         if Self::check_bedrock_credentials() {
             available.push(ProviderType::Bedrock);
         }
-        
+
         if Self::check_anthropic_credentials() {
             available.push(ProviderType::Anthropic);
         }
-        
+
         if Self::check_openai_credentials() {
             available.push(ProviderType::OpenAI);
         }
-        
+
         if Self::check_ollama().await {
             available.push(ProviderType::Ollama);
         }
-        
+
         available
     }
 }
@@ -315,20 +317,20 @@ impl TestEnvironment {
     /// Detect current test environment
     pub async fn detect() -> Self {
         let available_providers = ProviderChecker::get_available_providers().await;
-        
+
         let telemetry_endpoint = env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
-        
+
         let test_timeout = env::var(ENV_VERIFICATION_TIMEOUT_SECONDS)
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(30));
-        
+
         let max_parallel_tools = env::var(ENV_VERIFICATION_MAX_PARALLEL_TOOLS)
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(4);
-        
+
         Self {
             available_providers,
             telemetry_endpoint,
@@ -336,7 +338,7 @@ impl TestEnvironment {
             max_parallel_tools,
         }
     }
-    
+
     /// Print environment summary
     pub fn print_summary(&self) {
         println!("🔍 Test Environment Detection");
@@ -347,18 +349,18 @@ impl TestEnvironment {
         println!("Max Parallel Tools: {}", self.max_parallel_tools);
         println!();
     }
-    
+
     /// Check if a specific provider is available
     pub fn has_provider(&self, provider: ProviderType) -> bool {
         self.available_providers.contains(&provider)
     }
-    
+
     /// Get recommended test configuration for a provider
     pub fn get_config_for_provider(&self, provider: ProviderType) -> Result<TestConfig, String> {
         if !self.has_provider(provider) {
             return Err(format!("Provider {:?} is not available", provider));
         }
-        
+
         TestConfigBuilder::new()
             .provider(provider)
             .timeout(self.test_timeout)

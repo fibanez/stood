@@ -26,11 +26,14 @@ async fn test_nova_event_loop_minimal() -> Result<(), Box<dyn std::error::Error>
         .ok();
 
     // Configure providers
-    use stood::llm::registry::{PROVIDER_REGISTRY, ProviderRegistry};
+    use stood::llm::registry::{ProviderRegistry, PROVIDER_REGISTRY};
     ProviderRegistry::configure().await?;
 
     // Check Bedrock availability
-    if !PROVIDER_REGISTRY.is_configured(stood::llm::traits::ProviderType::Bedrock).await {
+    if !PROVIDER_REGISTRY
+        .is_configured(stood::llm::traits::ProviderType::Bedrock)
+        .await
+    {
         eprintln!("❌ AWS Bedrock not available - skipping test");
         return Ok(());
     }
@@ -44,7 +47,9 @@ async fn test_nova_event_loop_minimal() -> Result<(), Box<dyn std::error::Error>
     println!("\n🔨 Creating agent with Nova...");
     let mut agent = Agent::builder()
         .model(Bedrock::NovaLite)
-        .system_prompt("You are a helpful assistant. Use the simple_add tool when asked to add numbers.")
+        .system_prompt(
+            "You are a helpful assistant. Use the simple_add tool when asked to add numbers.",
+        )
         .with_streaming(false)
         .tools(tools)
         .with_log_level(LogLevel::Trace)
@@ -55,12 +60,13 @@ async fn test_nova_event_loop_minimal() -> Result<(), Box<dyn std::error::Error>
 
     // Set a shorter timeout for the event loop
     use tokio::time::{timeout, Duration};
-    
+
     println!("\n📞 Calling agent.execute() with timeout...");
     let result = timeout(
         Duration::from_secs(10),
-        agent.execute("Please add 5 and 3 using the simple_add tool.")
-    ).await;
+        agent.execute("Please add 5 and 3 using the simple_add tool."),
+    )
+    .await;
 
     match result {
         Ok(Ok(response)) => {

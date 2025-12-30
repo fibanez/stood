@@ -7,7 +7,7 @@
 use crate::error::StoodError;
 use crate::mcp::client::MCPClient;
 use crate::mcp::types::{Content, Tool as MCPTool};
-use crate::tools::{Tool, ToolResult, ToolError};
+use crate::tools::{Tool, ToolError, ToolResult};
 use crate::types::content::ToolResultContent;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -37,7 +37,7 @@ impl MCPAgentTool {
             Some(ns) => format!("{}{}", ns, mcp_tool.name),
             None => mcp_tool.name.clone(),
         };
-        
+
         Self {
             mcp_tool,
             mcp_client,
@@ -88,7 +88,7 @@ impl MCPAgentTool {
             // Multiple content items - create a multiple content block
             let blocks: Vec<ToolResultContent> = content
                 .iter()
-                .map(|c| Self::convert_mcp_content(&[c.clone()]))
+                .map(|c| Self::convert_mcp_content(std::slice::from_ref(c)))
                 .collect();
             ToolResultContent::Multiple { blocks }
         }
@@ -100,15 +100,12 @@ impl MCPAgentTool {
         match error {
             StoodError::ToolError { message, .. } => StoodError::tool_error(format!(
                 "MCP Tool '{}' {}: {}",
-                self.prefixed_name,
-                context,
-                message
+                self.prefixed_name, context, message
             )),
             StoodError::ConfigurationError { message, .. } => {
                 StoodError::configuration_error(format!(
                     "MCP Tool '{}' configuration error: {}",
-                    self.prefixed_name,
-                    message
+                    self.prefixed_name, message
                 ))
             }
             other => other,
@@ -127,45 +124,54 @@ impl std::fmt::Debug for MCPAgentTool {
     }
 }
 
-
 // Tool trait implementation for unified system
 #[async_trait]
 impl Tool for MCPAgentTool {
     fn name(&self) -> &str {
         &self.prefixed_name
     }
-    
+
     fn description(&self) -> &str {
         &self.mcp_tool.description
     }
-    
+
     fn parameters_schema(&self) -> Value {
         self.mcp_tool.input_schema.clone()
     }
-    
-    async fn execute(&self, parameters: Option<Value>, _agent_context: Option<&crate::agent::AgentContext>) -> Result<ToolResult, ToolError> {
+
+    async fn execute(
+        &self,
+        parameters: Option<Value>,
+        _agent_context: Option<&crate::agent::AgentContext>,
+    ) -> Result<ToolResult, ToolError> {
         // Handle the case where no parameters are provided
         let mut input = match parameters {
             Some(Value::Null) | None => {
                 // No parameters provided - use empty object
                 Value::Object(serde_json::Map::new())
-            },
+            }
             Some(value) => value,
         };
-        
+
         // Debug logging to see what we're getting
-        tracing::debug!("🔧 MCP TOOL '{}' received parameters: {:?}", self.prefixed_name, input);
-        tracing::debug!("🔧 MCP TOOL '{}' parameter type: {}", self.prefixed_name, 
+        tracing::debug!(
+            "🔧 MCP TOOL '{}' received parameters: {:?}",
+            self.prefixed_name,
+            input
+        );
+        tracing::debug!(
+            "🔧 MCP TOOL '{}' parameter type: {}",
+            self.prefixed_name,
             match &input {
                 serde_json::Value::Null => "null",
-                serde_json::Value::Bool(_) => "boolean", 
+                serde_json::Value::Bool(_) => "boolean",
                 serde_json::Value::Number(_) => "number",
                 serde_json::Value::String(_) => "string",
                 serde_json::Value::Array(_) => "array",
                 serde_json::Value::Object(_) => "object",
             }
         );
-        
+
         // Basic validation - ensure it's an object, but be more forgiving
         if !input.is_object() {
             // If it's a string, try to parse it as JSON
@@ -181,10 +187,10 @@ impl Tool for MCPAgentTool {
                         return Err(ToolError::InvalidParameters {
                             message: format!(
                                 "MCP Tool '{}' string parameter parsed to {}, not object: {:?}",
-                                self.prefixed_name, 
+                                self.prefixed_name,
                                 match parsed {
                                     serde_json::Value::Null => "null",
-                                    serde_json::Value::Bool(_) => "boolean", 
+                                    serde_json::Value::Bool(_) => "boolean",
                                     serde_json::Value::Number(_) => "number",
                                     serde_json::Value::String(_) => "string",
                                     serde_json::Value::Array(_) => "array",
@@ -211,7 +217,7 @@ impl Tool for MCPAgentTool {
                         self.prefixed_name,
                         match &input {
                             serde_json::Value::Null => "null",
-                            serde_json::Value::Bool(_) => "boolean", 
+                            serde_json::Value::Bool(_) => "boolean",
                             serde_json::Value::Number(_) => "number",
                             serde_json::Value::String(_) => "string",
                             serde_json::Value::Array(_) => "array",
@@ -222,14 +228,20 @@ impl Tool for MCPAgentTool {
                 });
             }
         }
-        
+
         // Log MCP tool invocation
-        tracing::info!("🔧 MCP TOOL INVOCATION: Calling '{}' (original: '{}')", 
-            self.prefixed_name, self.mcp_tool.name);
-        tracing::debug!("🔧 MCP tool parameters: {}", serde_json::to_string_pretty(&input).unwrap_or_else(|_| "Invalid JSON".to_string()));
-        
+        tracing::info!(
+            "🔧 MCP TOOL INVOCATION: Calling '{}' (original: '{}')",
+            self.prefixed_name,
+            self.mcp_tool.name
+        );
+        tracing::debug!(
+            "🔧 MCP tool parameters: {}",
+            serde_json::to_string_pretty(&input).unwrap_or_else(|_| "Invalid JSON".to_string())
+        );
+
         let start_time = std::time::Instant::now();
-        
+
         // Get a write lock on the MCP client (required for call_tool)
         let mut client = self.mcp_client.write().await;
 
@@ -239,15 +251,24 @@ impl Tool for MCPAgentTool {
             .await
             .map_err(|e| {
                 let duration = start_time.elapsed();
-                tracing::error!("❌ MCP TOOL FAILED: '{}' after {:?} - {}", self.prefixed_name, duration, e);
+                tracing::error!(
+                    "❌ MCP TOOL FAILED: '{}' after {:?} - {}",
+                    self.prefixed_name,
+                    duration,
+                    e
+                );
                 ToolError::ExecutionFailed {
                     message: format!("MCP Tool '{}' execution failed: {}", self.prefixed_name, e),
                 }
             })?;
-        
+
         let duration = start_time.elapsed();
-        tracing::info!("✅ MCP TOOL SUCCESS: '{}' completed in {:?} - {} content items", 
-            self.prefixed_name, duration, content_result.len());
+        tracing::info!(
+            "✅ MCP TOOL SUCCESS: '{}' completed in {:?} - {} content items",
+            self.prefixed_name,
+            duration,
+            content_result.len()
+        );
         tracing::debug!("📝 MCP tool raw response: {} items", content_result.len());
 
         // Convert the result to the expected format
@@ -256,7 +277,7 @@ impl Tool for MCPAgentTool {
             Err(e) => Ok(ToolResult::error(e.to_string())),
         }
     }
-    
+
     fn source(&self) -> crate::tools::ToolSource {
         crate::tools::ToolSource::MCP
     }
@@ -316,12 +337,15 @@ impl MCPToolRegistry {
 
             let tool_name = adapter.prefixed_name().to_string();
 
-            self.main_registry.register_tool(Box::new(adapter)).await.map_err(|e| {
-                StoodError::tool_error(format!(
-                    "Failed to register MCP tool '{}': {}",
-                    tool_name, e
-                ))
-            })?;
+            self.main_registry
+                .register_tool(Box::new(adapter))
+                .await
+                .map_err(|e| {
+                    StoodError::tool_error(format!(
+                        "Failed to register MCP tool '{}': {}",
+                        tool_name, e
+                    ))
+                })?;
 
             registered_tools.push(tool_name);
         }
@@ -406,7 +430,10 @@ mod tests {
         /// Available tools
         tools: Vec<MCPTool>,
         /// Tool execution handlers
-        tool_handlers: std::collections::HashMap<String, Box<dyn Fn(&serde_json::Value) -> Vec<Content> + Send + Sync>>,
+        tool_handlers: std::collections::HashMap<
+            String,
+            Box<dyn Fn(&serde_json::Value) -> Vec<Content> + Send + Sync>,
+        >,
         /// Server capabilities
         capabilities: crate::mcp::types::ServerCapabilities,
         /// Whether server should simulate errors
@@ -461,11 +488,11 @@ mod tests {
                 "calculator".to_string(),
                 Box::new(|params| {
                     let expression = params["expression"].as_str().unwrap_or("0");
-                    
+
                     // Simple expression evaluator for testing
                     let result = match expression {
                         "2 + 3" => "5",
-                        "10 - 4" => "6", 
+                        "10 - 4" => "6",
                         "3 * 7" => "21",
                         "15 / 3" => "5",
                         "2 + 3 * 4" => "14", // 2 + (3 * 4)
@@ -475,7 +502,7 @@ mod tests {
                     vec![Content::Text(TextContent {
                         text: format!("{} = {}", expression, result),
                     })]
-                })
+                }),
             );
 
             self.tools.push(tool);
@@ -508,16 +535,14 @@ mod tests {
                 Box::new(|params| {
                     let message = params["message"].as_str().unwrap_or("");
                     let repeat = params["repeat"].as_u64().unwrap_or(1) as usize;
-                    
-                    let repeated_message = (0..repeat)
-                        .map(|_| message)
-                        .collect::<Vec<_>>()
-                        .join(" ");
+
+                    let repeated_message =
+                        (0..repeat).map(|_| message).collect::<Vec<_>>().join(" ");
 
                     vec![Content::Text(TextContent {
                         text: repeated_message,
                     })]
-                })
+                }),
             );
 
             self.tools.push(tool);
@@ -527,7 +552,8 @@ mod tests {
         fn add_error_tool(&mut self) {
             let tool = MCPTool {
                 name: "error_tool".to_string(),
-                description: "Tool that always returns an error for testing error handling".to_string(),
+                description: "Tool that always returns an error for testing error handling"
+                    .to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -548,7 +574,7 @@ mod tests {
                     vec![Content::Text(TextContent {
                         text: format!("Simulated {} error", error_type),
                     })]
-                })
+                }),
             );
 
             self.tools.push(tool);
@@ -560,7 +586,11 @@ mod tests {
         }
 
         /// Execute a tool call
-        pub fn call_tool(&self, tool_name: &str, params: &serde_json::Value) -> Result<Vec<Content>, String> {
+        pub fn call_tool(
+            &self,
+            tool_name: &str,
+            params: &serde_json::Value,
+        ) -> Result<Vec<Content>, String> {
             if self.simulate_errors {
                 return Err("Simulated server error".to_string());
             }
@@ -681,12 +711,11 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_mock_mcp_server_creation() {
         let server = MockMCPServer::new();
         let tools = server.list_tools();
-        
+
         // Should have default tools: calculator, echo, error_tool
         assert_eq!(tools.len(), 3);
         assert!(tools.iter().any(|t| t.name == "calculator"));
@@ -697,11 +726,11 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_calculator_tool() {
         let server = MockMCPServer::new();
-        
+
         // Test calculator tool
         let params = serde_json::json!({"expression": "2 + 3"});
         let result = server.call_tool("calculator", &params).unwrap();
-        
+
         assert_eq!(result.len(), 1);
         if let Content::Text(text_content) = &result[0] {
             assert_eq!(text_content.text, "2 + 3 = 5");
@@ -713,11 +742,11 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_echo_tool() {
         let server = MockMCPServer::new();
-        
+
         // Test echo tool
         let params = serde_json::json!({"message": "Hello, world!"});
         let result = server.call_tool("echo", &params).unwrap();
-        
+
         assert_eq!(result.len(), 1);
         if let Content::Text(text_content) = &result[0] {
             assert_eq!(text_content.text, "Hello, world!");
@@ -729,11 +758,11 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_echo_tool_with_repeat() {
         let server = MockMCPServer::new();
-        
+
         // Test echo tool with repeat
         let params = serde_json::json!({"message": "Hi", "repeat": 3});
         let result = server.call_tool("echo", &params).unwrap();
-        
+
         assert_eq!(result.len(), 1);
         if let Content::Text(text_content) = &result[0] {
             assert_eq!(text_content.text, "Hi Hi Hi");
@@ -745,15 +774,15 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_error_simulation() {
         let mut server = MockMCPServer::new();
-        
+
         // Test normal operation
         let params = serde_json::json!({"message": "test"});
         assert!(server.call_tool("echo", &params).is_ok());
-        
+
         // Enable error simulation
         server.set_simulate_errors(true);
         assert!(server.call_tool("echo", &params).is_err());
-        
+
         // Disable error simulation
         server.set_simulate_errors(false);
         assert!(server.call_tool("echo", &params).is_ok());
@@ -762,12 +791,12 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_connection_state() {
         let mut server = MockMCPServer::new();
-        
+
         assert!(!server.is_connected());
-        
+
         server.connect();
         assert!(server.is_connected());
-        
+
         server.disconnect();
         assert!(!server.is_connected());
     }
@@ -776,7 +805,7 @@ mod tests {
     fn test_mock_mcp_server_capabilities() {
         let server = MockMCPServer::new();
         let capabilities = server.capabilities();
-        
+
         assert!(capabilities.tools.is_some());
         assert!(capabilities.resources.is_none());
         assert!(capabilities.prompts.is_none());
@@ -785,10 +814,10 @@ mod tests {
     #[test]
     fn test_mock_mcp_server_unknown_tool() {
         let server = MockMCPServer::new();
-        
+
         let params = serde_json::json!({"test": "value"});
         let result = server.call_tool("unknown_tool", &params);
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -796,15 +825,15 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_tool_registry_integration() {
         use crate::tools::ToolRegistry;
-        
+
         // Create a tool registry
         let tool_registry = Arc::new(ToolRegistry::new());
         let _mcp_registry = MCPToolRegistry::new(tool_registry.clone());
-        
+
         // Simulate creating an MCP client that would use our mock server
         // In real usage, this would connect to an actual MCP server
         let mock_client = Arc::new(RwLock::new(create_mock_mcp_client()));
-        
+
         // For this test, we'll manually create tools that would come from the mock server
         let calculator_tool = MCPTool {
             name: "calculator".to_string(),
@@ -820,17 +849,17 @@ mod tests {
                 "required": ["expression"]
             }),
         };
-        
+
         // Create adapter for the tool
         let adapter = MCPAgentTool::new(
-            calculator_tool.clone(), 
-            mock_client, 
-            Some("mock_server".to_string())
+            calculator_tool.clone(),
+            mock_client,
+            Some("mock_server".to_string()),
         );
-        
+
         // Verify the adapter works correctly
         assert_eq!(adapter.prefixed_name(), "mock_servercalculator");
-        
+
         assert_eq!(adapter.name(), "mock_servercalculator");
         assert_eq!(adapter.description(), &calculator_tool.description);
         assert_eq!(adapter.parameters_schema(), calculator_tool.input_schema);

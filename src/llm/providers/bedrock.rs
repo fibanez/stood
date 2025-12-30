@@ -77,25 +77,25 @@ impl BedrockProvider {
         let aws_config = config_loader.load().await;
         let client = BedrockRuntimeClient::new(&aws_config);
 
-        Ok(Self { 
-            client, 
-            aws_config, 
+        Ok(Self {
+            client,
+            aws_config,
             last_request_json: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
-    
+
     /// Create a new Bedrock provider with custom AWS credentials
-    /// 
+    ///
     /// This allows injecting credentials programmatically instead of relying on
     /// the default AWS credential provider chain. Useful for applications that
     /// manage credentials centrally (e.g., AWS Identity Center, STS assume role).
-    /// 
+    ///
     /// # Arguments
     /// * `region` - Optional AWS region (defaults to AWS SDK default)
     /// * `access_key` - AWS access key ID
-    /// * `secret_key` - AWS secret access key  
+    /// * `secret_key` - AWS secret access key
     /// * `session_token` - Optional session token for temporary credentials
-    /// 
+    ///
     /// # Example
     /// ```no_run
     /// # use stood::llm::providers::bedrock::BedrockProvider;
@@ -112,8 +112,8 @@ impl BedrockProvider {
     pub async fn with_credentials(
         region: Option<String>,
         access_key: String,
-        secret_key: String, 
-        session_token: Option<String>
+        secret_key: String,
+        session_token: Option<String>,
     ) -> Result<Self, LlmError> {
         // Create credentials from provided parameters
         let creds = aws_sdk_bedrockruntime::config::Credentials::new(
@@ -121,34 +121,34 @@ impl BedrockProvider {
             secret_key,
             session_token,
             None, // expiration - None means no known expiration
-            "StoodLibraryCustomCredentials"
+            "StoodLibraryCustomCredentials",
         );
-        
+
         // Configure AWS SDK with custom credentials
-        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .credentials_provider(creds);
-            
+        let mut config_loader =
+            aws_config::defaults(aws_config::BehaviorVersion::latest()).credentials_provider(creds);
+
         if let Some(region) = region {
             config_loader = config_loader.region(aws_config::Region::new(region));
         }
-        
+
         let aws_config = config_loader.load().await;
         let client = BedrockRuntimeClient::new(&aws_config);
-        
-        Ok(Self { 
-            client, 
-            aws_config, 
+
+        Ok(Self {
+            client,
+            aws_config,
             last_request_json: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
-    
+
     /// Store the last request JSON for raw capture
     fn store_request_json(&self, request_json: &str) {
         if let Ok(mut last_request) = self.last_request_json.lock() {
             *last_request = Some(request_json.to_string());
         }
     }
-    
+
     /// Get the last request JSON for raw capture (returns None if capture disabled or no request)
     pub fn get_last_request_json(&self) -> Option<String> {
         self.last_request_json.lock().ok()?.clone()
@@ -170,10 +170,10 @@ impl BedrockProvider {
         } else if model_id.contains("amazon.nova") {
             self.build_nova_request(messages, tools, config, &operation_id)
         } else {
-            return Err(LlmError::ModelNotFound {
+            Err(LlmError::ModelNotFound {
                 model_id: model_id.to_string(),
                 provider: ProviderType::Bedrock,
-            });
+            })
         }
     }
 
@@ -307,7 +307,7 @@ impl BedrockProvider {
         })
     }
 
-    /// Build Nova-specific request  
+    /// Build Nova-specific request
     fn build_nova_request(
         &self,
         messages: &Messages,
@@ -441,7 +441,6 @@ impl BedrockProvider {
             operation_id,
             serde_json::to_string_pretty(&request).unwrap_or_else(|_| "Invalid JSON".to_string())
         );
-        
 
         serde_json::to_string(&request).map_err(|e| LlmError::SerializationError {
             message: format!("Failed to serialize Nova request: {}", e),
@@ -539,7 +538,6 @@ impl BedrockProvider {
             operation_id,
             serde_json::to_string_pretty(&response).unwrap_or_else(|_| "Invalid JSON".to_string())
         );
-        
 
         // Nova Invoke API response structure - extract from output wrapper
         let mut content = String::new();
@@ -560,15 +558,19 @@ impl BedrockProvider {
                         } else if let Some(tool_use) = content_block.get("toolUse") {
                             // Nova tool use format
                             let tool_call = crate::llm::traits::ToolCall {
-                                id: tool_use.get("toolUseId")
+                                id: tool_use
+                                    .get("toolUseId")
                                     .and_then(|id| id.as_str())
                                     .unwrap_or("")
                                     .to_string(),
-                                name: tool_use.get("name")
+                                name: tool_use
+                                    .get("name")
                                     .and_then(|n| n.as_str())
                                     .unwrap_or("")
                                     .to_string(),
-                                input: tool_use.get("input").cloned()
+                                input: tool_use
+                                    .get("input")
+                                    .cloned()
                                     .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
                             };
                             tool_calls.push(tool_call);
@@ -577,17 +579,21 @@ impl BedrockProvider {
                 }
             }
 
-            // Extract usage information from top-level usage field  
-            let usage = response.get("usage")
+            // Extract usage information from top-level usage field
+            let usage = response
+                .get("usage")
                 .and_then(|u| u.as_object())
                 .map(|usage| crate::llm::traits::Usage {
-                    input_tokens: usage.get("inputTokens")
+                    input_tokens: usage
+                        .get("inputTokens")
                         .and_then(|t| t.as_u64())
                         .unwrap_or(0) as u32,
-                    output_tokens: usage.get("outputTokens")
+                    output_tokens: usage
+                        .get("outputTokens")
                         .and_then(|t| t.as_u64())
                         .unwrap_or(0) as u32,
-                    total_tokens: usage.get("totalTokens")
+                    total_tokens: usage
+                        .get("totalTokens")
                         .and_then(|t| t.as_u64())
                         .unwrap_or(0) as u32,
                 });
@@ -620,7 +626,7 @@ impl BedrockProvider {
             metadata,
         })
     }
-    
+
     /// Convert AWS Bedrock response stream to StreamEvent stream
     async fn convert_bedrock_stream_to_events(
         &self,
@@ -628,33 +634,33 @@ impl BedrockProvider {
         model_id: &str,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError> {
         use futures::stream::StreamExt;
-        
+
         let event_stream = response.body;
-        
+
         let is_nova = model_id.contains("amazon.nova");
         let converted_stream = async_stream::stream! {
             tracing::debug!("🌊 Starting Bedrock stream processing for {} model...", if is_nova { "Nova" } else { "Claude" });
             let mut chunk_count = 0;
             let mut total_content = String::new();
-            
+
             // AWS Bedrock streaming works with EventReceiver
             let mut stream = event_stream;
-            
+
             loop {
                 match stream.recv().await {
                     Ok(Some(event)) => {
                         chunk_count += 1;
                         tracing::trace!("🌊 Received Bedrock stream event #{}: {:?}", chunk_count, event);
-                        
+
                         match event {
                             aws_sdk_bedrockruntime::types::ResponseStream::Chunk(chunk) => {
                                 // Parse the chunk bytes as JSON
                                 let chunk_bytes = chunk.bytes().map(|b| b.as_ref()).unwrap_or(&[]);
-                                
+
                                 if is_nova {
                                     // Nova streaming: decode base64 content from body.chunk.bytes
                                     tracing::trace!("🌊 Nova chunk bytes length: {}", chunk_bytes.len());
-                                    
+
                                     if let Ok(chunk_str) = String::from_utf8(chunk_bytes.to_vec()) {
                                         if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&chunk_str) {
                                             // Nova chunks might be wrapped differently - need to handle base64 decoding
@@ -678,7 +684,7 @@ impl BedrockProvider {
                                     // Claude streaming: direct JSON parsing
                                     let chunk_str = String::from_utf8_lossy(chunk_bytes);
                                     tracing::trace!("🌊 Claude chunk content: {}", chunk_str);
-                                    
+
                                     if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&chunk_str) {
                                         // Extract delta content from Claude response format
                                         if let Some(delta) = chunk_json.get("delta") {
@@ -703,21 +709,21 @@ impl BedrockProvider {
                     }
                     Ok(None) => {
                         tracing::debug!("🌊 Bedrock stream ended");
-                        
+
                         // Estimate token usage based on content length (approximation)
                         // Typical ratio is ~4 characters per token for English text
                         let output_tokens = (total_content.len() / 4).max(1) as u32;
                         let input_tokens = 50; // Rough estimate for input - this could be improved
-                        
+
                         let usage = Some(crate::llm::traits::Usage {
                             input_tokens,
                             output_tokens,
                             total_tokens: input_tokens + output_tokens,
                         });
-                        
-                        tracing::debug!("🌊 Estimated token usage: input={}, output={}, total={}", 
+
+                        tracing::debug!("🌊 Estimated token usage: input={}, output={}, total={}",
                                       input_tokens, output_tokens, input_tokens + output_tokens);
-                        
+
                         yield StreamEvent::Done { usage };
                         break;
                     }
@@ -730,11 +736,11 @@ impl BedrockProvider {
                     }
                 }
             }
-            
-            tracing::debug!("🌊 Bedrock stream completed - processed {} chunks, total content: {} chars", 
+
+            tracing::debug!("🌊 Bedrock stream completed - processed {} chunks, total content: {} chars",
                 chunk_count, total_content.len());
         };
-        
+
         Ok(Box::new(converted_stream.boxed()))
     }
 
@@ -745,9 +751,12 @@ impl BedrockProvider {
         model_id: &str,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError> {
         use futures::stream::StreamExt;
-        
-        tracing::info!("🔧🌊 Starting convert_bedrock_stream_to_events_with_tools for model: {}", model_id);
-        
+
+        tracing::info!(
+            "🔧🌊 Starting convert_bedrock_stream_to_events_with_tools for model: {}",
+            model_id
+        );
+
         // Determine model type for model-aware streaming
         let model_type = if model_id.contains("anthropic.claude") {
             tracing::info!("🔧🌊 Detected Claude model type");
@@ -756,41 +765,44 @@ impl BedrockProvider {
             tracing::info!("🔧🌊 Detected Nova model type");
             ModelType::Nova
         } else {
-            tracing::error!("🔧🌊 Unsupported model for streaming with tools: {}", model_id);
+            tracing::error!(
+                "🔧🌊 Unsupported model for streaming with tools: {}",
+                model_id
+            );
             return Err(LlmError::UnsupportedFeature {
                 feature: format!("streaming with tools for model: {}", model_id),
                 provider: ProviderType::Bedrock,
             });
         };
-        
+
         let event_stream = response.body;
-        
+
         let converted_stream = async_stream::stream! {
             tracing::debug!("🔧🌊 Starting Bedrock stream processing with tools for model type: {:?}", model_type);
             let mut chunk_count = 0;
             let mut total_content = String::new();
             let mut tool_state = ToolState::new(model_type.clone());
-            
+
             // AWS Bedrock streaming works with EventReceiver
             let mut stream = event_stream;
-            
+
             loop {
                 match stream.recv().await {
                     Ok(Some(event)) => {
                         chunk_count += 1;
                         tracing::trace!("🔧🌊 Received Bedrock stream event #{}: {:?}", chunk_count, event);
-                        
+
                         match event {
                             aws_sdk_bedrockruntime::types::ResponseStream::Chunk(chunk) => {
                                 // Parse the chunk bytes - model-aware processing
                                 let chunk_bytes = chunk.bytes().map(|b| b.as_ref()).unwrap_or(&[]);
-                                
+
                                 match tool_state.model_type {
                                     ModelType::Claude => {
                                         // Claude format: direct JSON
                                         let chunk_str = String::from_utf8_lossy(chunk_bytes);
                                         tracing::trace!("🔧🌊 Claude chunk content: {}", chunk_str);
-                                        
+
                                         if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&chunk_str) {
                                             // Process Claude streaming events
                                             if let Some(events) = Self::process_claude_streaming_chunk(&chunk_json, &mut tool_state) {
@@ -823,21 +835,21 @@ impl BedrockProvider {
                     }
                     Ok(None) => {
                         tracing::info!("🔧🌊 Bedrock stream with tools ended after {} chunks", chunk_count);
-                        
+
                         // Estimate token usage based on content length (approximation)
                         // Typical ratio is ~4 characters per token for English text
                         let output_tokens = (total_content.len() / 4).max(1) as u32;
                         let input_tokens = 100; // Rough estimate for input with tools - higher than non-tools
-                        
+
                         let usage = Some(crate::llm::traits::Usage {
                             input_tokens,
                             output_tokens,
                             total_tokens: input_tokens + output_tokens,
                         });
-                        
-                        tracing::debug!("🔧🌊 Estimated token usage with tools: input={}, output={}, total={}", 
+
+                        tracing::debug!("🔧🌊 Estimated token usage with tools: input={}, output={}, total={}",
                                       input_tokens, output_tokens, input_tokens + output_tokens);
-                        
+
                         yield StreamEvent::Done { usage };
                         break;
                     }
@@ -850,18 +862,20 @@ impl BedrockProvider {
                     }
                 }
             }
-            
-            tracing::debug!("🔧🌊 Bedrock stream with tools completed - processed {} chunks, total content: {} chars", 
+
+            tracing::debug!("🔧🌊 Bedrock stream with tools completed - processed {} chunks, total content: {} chars",
                 chunk_count, total_content.len());
         };
-        
+
         Ok(Box::new(converted_stream.boxed()))
     }
 
     /// Classify Bedrock API errors for better user feedback (based on test_bedrock_credentials_direct)
     fn classify_bedrock_error(
         &self,
-        sdk_error: &aws_sdk_bedrockruntime::error::SdkError<aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError>,
+        sdk_error: &aws_sdk_bedrockruntime::error::SdkError<
+            aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError,
+        >,
         _model_id: &str,
     ) -> String {
         match sdk_error {
@@ -897,7 +911,8 @@ impl BedrockProvider {
                     // Handle common unhandled error types by parsing the service_error string
                     let service_error_str = format!("{}", service_error);
                     if service_error_str.contains("UnrecognizedClientException") {
-                        "🚨 UnrecognizedClientException: Invalid or expired AWS credentials".to_string()
+                        "🚨 UnrecognizedClientException: Invalid or expired AWS credentials"
+                            .to_string()
                     } else if service_error_str.contains("SignatureDoesNotMatch") {
                         "🚨 SignatureDoesNotMatch: AWS credential signature invalid".to_string()
                     } else if service_error_str.contains("TokenRefreshRequired") {
@@ -906,19 +921,19 @@ impl BedrockProvider {
                         format!("🚨 {}: {}", error_type, service_error)
                     }
                 }
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::ConstructionFailure(e) => {
                 format!("🔧 ConstructionFailure: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::DispatchFailure(e) => {
                 format!("🌐 DispatchFailure: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::ResponseError(e) => {
                 format!("📨 ResponseError: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::TimeoutError(e) => {
                 format!("⏰ TimeoutError: {:?}", e)
-            },
+            }
             _ => {
                 format!("❓ Unknown SDK error: {}", sdk_error)
             }
@@ -964,7 +979,8 @@ impl BedrockProvider {
                     // Handle common unhandled error types by parsing the service_error string
                     let service_error_str = format!("{}", service_error);
                     if service_error_str.contains("UnrecognizedClientException") {
-                        "🚨 UnrecognizedClientException: Invalid or expired AWS credentials".to_string()
+                        "🚨 UnrecognizedClientException: Invalid or expired AWS credentials"
+                            .to_string()
                     } else if service_error_str.contains("SignatureDoesNotMatch") {
                         "🚨 SignatureDoesNotMatch: AWS credential signature invalid".to_string()
                     } else if service_error_str.contains("TokenRefreshRequired") {
@@ -973,19 +989,19 @@ impl BedrockProvider {
                         format!("🚨 {}: {}", error_type, service_error)
                     }
                 }
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::ConstructionFailure(e) => {
                 format!("🔧 ConstructionFailure: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::DispatchFailure(e) => {
                 format!("🌐 DispatchFailure: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::ResponseError(e) => {
                 format!("📨 ResponseError: {:?}", e)
-            },
+            }
             aws_sdk_bedrockruntime::error::SdkError::TimeoutError(e) => {
                 format!("⏰ TimeoutError: {:?}", e)
-            },
+            }
             _ => {
                 format!("❓ Unknown SDK error: {}", sdk_error)
             }
@@ -1054,7 +1070,7 @@ impl LlmProvider for BedrockProvider {
 
         // Build request body
         let request_body = self.build_request_body(messages, model_id, tools, config)?;
-        
+
         // Store request JSON for raw capture
         self.store_request_json(&request_body);
 
@@ -1097,7 +1113,6 @@ impl LlmProvider for BedrockProvider {
             operation_id,
             duration.as_secs_f64()
         );
-        
 
         // Parse response
         let response_body = String::from_utf8(response.body().as_ref().to_vec()).map_err(|e| {
@@ -1120,16 +1135,19 @@ impl LlmProvider for BedrockProvider {
         messages: &Messages,
         config: &ChatConfig,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError> {
-        tracing::info!("🌊 Bedrock streaming request starting for model: {}", model_id);
-        
+        tracing::info!(
+            "🌊 Bedrock streaming request starting for model: {}",
+            model_id
+        );
+
         // Build request body using existing method (no tools for streaming)
         let request_body = self.build_request_body(messages, model_id, &[], config)?;
-        
+
         // Store request JSON for raw capture
         self.store_request_json(&request_body);
-        
+
         tracing::debug!("🌊 Bedrock streaming request body: {}", request_body);
-        
+
         // Make streaming API call
         let response = self
             .client
@@ -1150,7 +1168,9 @@ impl LlmProvider for BedrockProvider {
             })?;
 
         // Convert AWS Bedrock stream to our StreamEvent stream
-        let stream = self.convert_bedrock_stream_to_events(response, model_id).await?;
+        let stream = self
+            .convert_bedrock_stream_to_events(response, model_id)
+            .await?;
         Ok(stream)
     }
 
@@ -1161,16 +1181,23 @@ impl LlmProvider for BedrockProvider {
         tools: &[Tool],
         config: &ChatConfig,
     ) -> Result<Box<dyn Stream<Item = StreamEvent> + Send + Unpin>, LlmError> {
-        tracing::info!("🔧🌊 Bedrock streaming with tools request starting for model: {} with {} tools", model_id, tools.len());
-        
+        tracing::info!(
+            "🔧🌊 Bedrock streaming with tools request starting for model: {} with {} tools",
+            model_id,
+            tools.len()
+        );
+
         // Build request body with tools (key difference from chat_streaming)
         let request_body = self.build_request_body(messages, model_id, tools, config)?;
-        
+
         // Store request JSON for raw capture
         self.store_request_json(&request_body);
-        
-        tracing::debug!("🔧🌊 Bedrock streaming with tools request body: {}", request_body);
-        
+
+        tracing::debug!(
+            "🔧🌊 Bedrock streaming with tools request body: {}",
+            request_body
+        );
+
         // Make streaming API call (same as regular streaming)
         let response = self
             .client
@@ -1190,9 +1217,10 @@ impl LlmProvider for BedrockProvider {
                 }
             })?;
 
-
         // Convert AWS Bedrock stream to our StreamEvent stream (with tool support)
-        let stream = self.convert_bedrock_stream_to_events_with_tools(response, model_id).await?;
+        let stream = self
+            .convert_bedrock_stream_to_events_with_tools(response, model_id)
+            .await?;
         Ok(stream)
     }
 
@@ -1211,14 +1239,13 @@ impl LlmProvider for BedrockProvider {
         ProviderCapabilities {
             supports_streaming: true, // Now implemented!
             supports_tools: true,
-            supports_thinking: false,
-            supports_vision: false,
+            supports_thinking: true, // Claude 4.5 supports extended thinking
+            supports_vision: true,   // Claude 4.5 supports vision
             max_tokens: Some(200000),
             available_models: vec![
-                "us.anthropic.claude-3-5-haiku-20241022-v1:0".to_string(),
-                "us.anthropic.claude-3-5-sonnet-20241022-v2:0".to_string(),
-                "us.anthropic.claude-3-haiku-20240307-v1:0".to_string(),
-                "us.anthropic.claude-3-opus-20240229-v1:0".to_string(),
+                "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_string(),
+                "us.anthropic.claude-opus-4-5-20251101-v1:0".to_string(),
                 "us.amazon.nova-lite-v1:0".to_string(),
                 "us.amazon.nova-pro-v1:0".to_string(),
                 "us.amazon.nova-micro-v1:0".to_string(),
@@ -1232,16 +1259,15 @@ impl LlmProvider for BedrockProvider {
 
     fn supported_models(&self) -> Vec<&'static str> {
         vec![
-            "us.anthropic.claude-3-5-haiku-20241022-v1:0",
-            "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-            "us.anthropic.claude-3-haiku-20240307-v1:0",
-            "us.anthropic.claude-3-opus-20240229-v1:0",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0",
             "us.amazon.nova-lite-v1:0",
             "us.amazon.nova-pro-v1:0",
             "us.amazon.nova-micro-v1:0",
         ]
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -1254,73 +1280,88 @@ impl BedrockProvider {
         tool_state: &mut ToolState,
     ) -> Option<Vec<StreamEvent>> {
         let mut events = Vec::new();
-        
+
         // Handle both direct event types and nested event types
-        let event_type = chunk_json.get("type").and_then(|t| t.as_str())
-            .or_else(|| {
-                // Nova format detection by checking for specific keys
-                if chunk_json.get("messageStart").is_some() {
-                    Some("message_start")
-                } else if chunk_json.get("contentBlockStart").is_some() {
-                    Some("content_block_start")
-                } else if chunk_json.get("contentBlockDelta").is_some() {
-                    Some("content_block_delta")
-                } else if chunk_json.get("contentBlockStop").is_some() {
-                    Some("content_block_stop")
-                } else {
-                    None
-                }
-            });
+        let event_type = chunk_json.get("type").and_then(|t| t.as_str()).or_else(|| {
+            // Nova format detection by checking for specific keys
+            if chunk_json.get("messageStart").is_some() {
+                Some("message_start")
+            } else if chunk_json.get("contentBlockStart").is_some() {
+                Some("content_block_start")
+            } else if chunk_json.get("contentBlockDelta").is_some() {
+                Some("content_block_delta")
+            } else if chunk_json.get("contentBlockStop").is_some() {
+                Some("content_block_stop")
+            } else {
+                None
+            }
+        });
 
         if let Some(event_type) = event_type {
             match event_type {
                 "content_block_start" => {
                     // Handle Claude format: content_block.type == "tool_use"
-                    let claude_tool_use = chunk_json.get("content_block")
-                        .and_then(|content_block| {
-                            let block_type = content_block.get("type")
+                    let claude_tool_use =
+                        chunk_json.get("content_block").and_then(|content_block| {
+                            let block_type = content_block
+                                .get("type")
                                 .and_then(|t| t.as_str())
                                 .unwrap_or("text");
-                            
+
                             if block_type == "tool_use" {
                                 Some((
-                                    content_block.get("id").and_then(|id| id.as_str()).unwrap_or(""),
-                                    content_block.get("name").and_then(|n| n.as_str()).unwrap_or("")
+                                    content_block
+                                        .get("id")
+                                        .and_then(|id| id.as_str())
+                                        .unwrap_or(""),
+                                    content_block
+                                        .get("name")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or(""),
                                 ))
                             } else {
                                 None
                             }
                         });
-                    
+
                     // Handle Nova format: contentBlockStart.start.toolUse
-                    let nova_tool_use = chunk_json.get("contentBlockStart")
+                    let nova_tool_use = chunk_json
+                        .get("contentBlockStart")
                         .and_then(|cbs| cbs.get("start"))
                         .and_then(|start| start.get("toolUse"))
-                        .map(|tool_use| (
-                            tool_use.get("toolUseId").and_then(|id| id.as_str()).unwrap_or(""),
-                            tool_use.get("name").and_then(|n| n.as_str()).unwrap_or("")
-                        ));
-                    
+                        .map(|tool_use| {
+                            (
+                                tool_use
+                                    .get("toolUseId")
+                                    .and_then(|id| id.as_str())
+                                    .unwrap_or(""),
+                                tool_use.get("name").and_then(|n| n.as_str()).unwrap_or(""),
+                            )
+                        });
+
                     if let Some((tool_use_id, name)) = claude_tool_use.or(nova_tool_use) {
                         let tool_use_id = tool_use_id.to_string();
                         let name = name.to_string();
-                        
+
                         tool_state.current_tool_call = Some(crate::llm::traits::ToolCall {
                             id: tool_use_id.clone(),
                             name: name.clone(),
                             input: serde_json::Value::Null,
                         });
                         tool_state.tool_input_buffer.clear();
-                        
+
                         // Don't emit ToolCallStart yet - wait until we have the complete input
                         // For now, just track it in tool_state
                     }
                 }
                 "content_block_delta" | "contentBlockDelta" => {
                     // Handle both Claude format (content_block_delta) and Nova format (contentBlockDelta)
-                    let delta = chunk_json.get("delta").or_else(|| 
-                        chunk_json.get("contentBlockDelta").and_then(|cbd| cbd.get("delta")));
-                    
+                    let delta = chunk_json.get("delta").or_else(|| {
+                        chunk_json
+                            .get("contentBlockDelta")
+                            .and_then(|cbd| cbd.get("delta"))
+                    });
+
                     if let Some(delta) = delta {
                         if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
                             if !text.is_empty() {
@@ -1329,7 +1370,9 @@ impl BedrockProvider {
                                     index: 0,
                                 });
                             }
-                        } else if let Some(partial_json) = delta.get("partial_json").and_then(|j| j.as_str()) {
+                        } else if let Some(partial_json) =
+                            delta.get("partial_json").and_then(|j| j.as_str())
+                        {
                             // Claude format: partial_json field
                             if let Some(ref tool_call) = tool_state.current_tool_call {
                                 tool_state.tool_input_buffer.push_str(partial_json);
@@ -1346,7 +1389,8 @@ impl BedrockProvider {
                                     if input_obj.is_object() || input_obj.is_array() {
                                         // Input is already a JSON object/array
                                         tool_call.input = input_obj.clone();
-                                        let input_str = serde_json::to_string(input_obj).unwrap_or_default();
+                                        let input_str =
+                                            serde_json::to_string(input_obj).unwrap_or_default();
                                         events.push(StreamEvent::ToolCallDelta {
                                             tool_call_id: tool_call.id.clone(),
                                             delta: input_str,
@@ -1354,9 +1398,13 @@ impl BedrockProvider {
                                     } else if let Some(input_str) = input_obj.as_str() {
                                         // Input is a string that needs to be accumulated
                                         tool_state.tool_input_buffer.push_str(input_str);
-                                        
+
                                         // Try to parse complete JSON input
-                                        if let Ok(input_json) = serde_json::from_str::<serde_json::Value>(&tool_state.tool_input_buffer) {
+                                        if let Ok(input_json) =
+                                            serde_json::from_str::<serde_json::Value>(
+                                                &tool_state.tool_input_buffer,
+                                            )
+                                        {
                                             tool_call.input = input_json;
                                         }
                                         events.push(StreamEvent::ToolCallDelta {
@@ -1373,22 +1421,25 @@ impl BedrockProvider {
                     if let Some(ref mut tool_call) = tool_state.current_tool_call {
                         // Final attempt to parse any remaining buffered input
                         if tool_call.input.is_null() && !tool_state.tool_input_buffer.is_empty() {
-                            if let Ok(input_json) = serde_json::from_str::<serde_json::Value>(&tool_state.tool_input_buffer) {
+                            if let Ok(input_json) = serde_json::from_str::<serde_json::Value>(
+                                &tool_state.tool_input_buffer,
+                            ) {
                                 tool_call.input = input_json;
                             } else {
                                 // If parsing fails, use empty object to prevent ValidationException
                                 tool_call.input = serde_json::Value::Object(serde_json::Map::new());
                             }
                         }
-                        
+
                         // Emit the complete tool call now that we have all the input
                         events.push(StreamEvent::ToolCallStart {
                             tool_call: tool_call.clone(),
                         });
-                        
+
                         // Also emit a delta with the complete input for compatibility
                         if !tool_call.input.is_null() {
-                            let input_str = serde_json::to_string(&tool_call.input).unwrap_or_default();
+                            let input_str =
+                                serde_json::to_string(&tool_call.input).unwrap_or_default();
                             events.push(StreamEvent::ToolCallDelta {
                                 tool_call_id: tool_call.id.clone(),
                                 delta: input_str,
@@ -1403,8 +1454,12 @@ impl BedrockProvider {
                 _ => {}
             }
         }
-        
-        if events.is_empty() { None } else { Some(events) }
+
+        if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        }
     }
 
     /// Process Nova streaming chunk with tool support
@@ -1415,7 +1470,7 @@ impl BedrockProvider {
     ) -> Option<Vec<StreamEvent>> {
         // Nova actually uses Claude's streaming format, so we can reuse Claude's processor
         let chunk_str = String::from_utf8_lossy(chunk_bytes).into_owned();
-        
+
         if let Ok(chunk_json) = serde_json::from_str::<serde_json::Value>(&chunk_str) {
             // Nova uses the exact same format as Claude, so delegate to Claude processor
             return Self::process_claude_streaming_chunk(&chunk_json, tool_state);
@@ -1428,8 +1483,7 @@ impl BedrockProvider {
                 }]);
             }
         }
-        
+
         None
     }
 }
-

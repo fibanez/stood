@@ -6,7 +6,7 @@
 //!
 //! Key components:
 //! - `clean_orphaned_empty_tool_uses`: Remove incomplete tool uses without corresponding results
-//! - `remove_blank_content`: Handle empty text content in messages  
+//! - `remove_blank_content`: Handle empty text content in messages
 //! - `truncate_tool_results`: Truncate large tool results for context window management
 //! - `validate_content`: Validate message structure and content types
 //! - `normalize_messages`: Standardize message format across providers
@@ -61,7 +61,7 @@ impl MessageProcessor {
     ///
     /// Algorithm:
     /// 1. Scan assistant messages to identify empty toolUse entries
-    /// 2. Scan user messages to identify existing toolResult entries  
+    /// 2. Scan user messages to identify existing toolResult entries
     /// 3. Identify orphaned toolUse entries (those without matching toolResult)
     /// 4. Apply fixes in reverse order to avoid index shifting
     ///

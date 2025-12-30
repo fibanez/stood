@@ -121,7 +121,9 @@ impl AgenticChat {
                     println!("{} {}", "Warning:".bright_yellow().bold(), "Empty response received. This likely indicates AWS credentials are not configured properly.");
                     println!("Please ensure you have set up AWS credentials via:");
                     println!("  • AWS_PROFILE environment variable");
-                    println!("  • AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables");
+                    println!(
+                        "  • AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
+                    );
                     println!("  • AWS CLI credentials file");
                 } else {
                     println!("{} {}", "Assistant:".bright_blue().bold(), result.response);
@@ -136,7 +138,6 @@ impl AgenticChat {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-
     // Check for AWS credentials
     if std::env::var("AWS_PROFILE").is_err() && std::env::var("AWS_ACCESS_KEY_ID").is_err() {
         eprintln!(

@@ -8,7 +8,7 @@
 //! # Key Features
 //!
 //! - **Intelligent Execution Strategy**: Automatically chooses sequential or parallel execution
-//! - **Configurable Concurrency**: CPU-based defaults with user override capabilities  
+//! - **Configurable Concurrency**: CPU-based defaults with user override capabilities
 //! - **Real-time Progress Monitoring**: Channel-based result collection with progress tracking
 //! - **Robust Error Handling**: Graceful failure handling with detailed error context
 //! - **Performance Optimization**: Efficient task scheduling and resource management
@@ -193,8 +193,16 @@ pub struct TokioExecutor {
     /// Shutdown signal
     shutdown_signal: std::sync::Arc<tokio::sync::Notify>,
     /// Result collection channels
-    result_receiver: std::sync::Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<TaskResultAny>>>>,
+    result_receiver: std::sync::Arc<
+        tokio::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<TaskResultAny>>>,
+    >,
     result_sender: std::sync::Arc<tokio::sync::mpsc::UnboundedSender<TaskResultAny>>,
+}
+
+impl Default for TokioExecutor {
+    fn default() -> Self {
+        Self::new(ParallelConfig::default())
+    }
 }
 
 impl TokioExecutor {
@@ -210,11 +218,6 @@ impl TokioExecutor {
             result_receiver: std::sync::Arc::new(tokio::sync::Mutex::new(Some(result_receiver))),
             result_sender: std::sync::Arc::new(result_sender),
         }
-    }
-
-    /// Create a new TokioExecutor with default configuration
-    pub fn default() -> Self {
-        Self::new(ParallelConfig::default())
     }
 
     /// Execute a task with retry logic and timeout handling
@@ -375,10 +378,10 @@ impl ParallelExecutor for TokioExecutor {
     {
         let mut results = Vec::new();
         let mut receiver_guard = self.result_receiver.lock().await;
-        
+
         if let Some(mut receiver) = receiver_guard.take() {
             drop(receiver_guard);
-            
+
             // Collect results until all tasks are complete
             while !self.task_handles.lock().await.is_empty() {
                 tokio::select! {
@@ -389,8 +392,8 @@ impl ParallelExecutor for TokioExecutor {
                                 // Handle error case
                                 let error = result_any.error_message
                                     .map(|msg| StoodError::ConfigurationError { message: msg })
-                                    .unwrap_or_else(|| StoodError::ConfigurationError { 
-                                        message: "Unknown error".to_string() 
+                                    .unwrap_or_else(|| StoodError::ConfigurationError {
+                                        message: "Unknown error".to_string()
                                     });
                                 results.push(TaskResult {
                                     task_id: result_any.task_id,
@@ -426,7 +429,7 @@ impl ParallelExecutor for TokioExecutor {
                     }
                 }
             }
-            
+
             // Restore the receiver
             *self.result_receiver.lock().await = Some(receiver);
         }
@@ -442,13 +445,13 @@ impl ParallelExecutor for TokioExecutor {
         T: Send + 'static,
     {
         use futures::stream;
-        
+
         let task_handles = self.task_handles.clone();
         let mut receiver_guard = self.result_receiver.lock().await;
-        
+
         if let Some(receiver) = receiver_guard.take() {
             drop(receiver_guard);
-            
+
             let stream = stream::unfold(
                 (receiver, task_handles),
                 move |(mut receiver, handles_ref)| async move {
@@ -460,8 +463,8 @@ impl ParallelExecutor for TokioExecutor {
                                         // Handle error case
                                         let error = result_any.error_message
                                             .map(|msg| StoodError::ConfigurationError { message: msg })
-                                            .unwrap_or_else(|| StoodError::ConfigurationError { 
-                                                message: "Unknown error".to_string() 
+                                            .unwrap_or_else(|| StoodError::ConfigurationError {
+                                                message: "Unknown error".to_string()
                                             });
                                         TaskResult {
                                             task_id: result_any.task_id,
@@ -490,7 +493,7 @@ impl ParallelExecutor for TokioExecutor {
                                             }
                                         }
                                     };
-                                    
+
                                     return Some((task_result, (receiver, handles_ref)));
                                 }
                             }
@@ -504,7 +507,7 @@ impl ParallelExecutor for TokioExecutor {
                     }
                 },
             );
-            
+
             Ok(Box::pin(stream))
         } else {
             // No receiver available, return an empty stream

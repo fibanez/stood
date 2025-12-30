@@ -3,8 +3,8 @@
 //! This module provides configuration types that enable type-safe setup
 //! of callback handlers during agent construction.
 
-use std::sync::Arc;
 use super::traits::CallbackHandler;
+use std::sync::Arc;
 
 /// Callback handler configuration enum for type safety
 ///
@@ -14,19 +14,19 @@ use super::traits::CallbackHandler;
 pub enum CallbackHandlerConfig {
     /// No callbacks (default)
     None,
-    
+
     /// Built-in printing handler with configuration
     Printing(PrintingConfig),
-    
+
     /// Custom handler (type-erased for flexibility)
     Custom(Arc<dyn CallbackHandler>),
-    
+
     /// Multiple handlers composed together
     Composite(Vec<CallbackHandlerConfig>),
-    
+
     /// Performance logging handler
     Performance(tracing::Level),
-    
+
     /// Batching wrapper around another handler for performance optimization
     Batching {
         inner: Box<CallbackHandlerConfig>,
@@ -38,16 +38,24 @@ impl std::fmt::Debug for CallbackHandlerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CallbackHandlerConfig::None => write!(f, "None"),
-            CallbackHandlerConfig::Printing(config) => f.debug_tuple("Printing").field(config).finish(),
+            CallbackHandlerConfig::Printing(config) => {
+                f.debug_tuple("Printing").field(config).finish()
+            }
             CallbackHandlerConfig::Custom(_) => write!(f, "Custom(Arc<dyn CallbackHandler>)"),
-            CallbackHandlerConfig::Composite(handlers) => f.debug_tuple("Composite").field(handlers).finish(),
-            CallbackHandlerConfig::Performance(level) => f.debug_tuple("Performance").field(level).finish(),
-            CallbackHandlerConfig::Batching { inner, batch_config } => {
-                f.debug_struct("Batching")
-                    .field("inner", inner)
-                    .field("batch_config", batch_config)
-                    .finish()
-            },
+            CallbackHandlerConfig::Composite(handlers) => {
+                f.debug_tuple("Composite").field(handlers).finish()
+            }
+            CallbackHandlerConfig::Performance(level) => {
+                f.debug_tuple("Performance").field(level).finish()
+            }
+            CallbackHandlerConfig::Batching {
+                inner,
+                batch_config,
+            } => f
+                .debug_struct("Batching")
+                .field("inner", inner)
+                .field("batch_config", batch_config)
+                .finish(),
         }
     }
 }
@@ -60,13 +68,13 @@ impl std::fmt::Debug for CallbackHandlerConfig {
 pub struct PrintingConfig {
     /// Show reasoning text (matches Python's reasoningText handling)
     pub show_reasoning: bool,
-    
+
     /// Show tool execution details (matches Python's current_tool_use handling)
     pub show_tools: bool,
-    
+
     /// Show performance metrics at completion
     pub show_performance: bool,
-    
+
     /// Stream output in real-time (matches Python's data streaming)
     pub stream_output: bool,
 }
@@ -92,7 +100,7 @@ impl PrintingConfig {
             stream_output: true,
         }
     }
-    
+
     /// Create config for production/clean output
     pub fn minimal() -> Self {
         Self {
@@ -102,7 +110,7 @@ impl PrintingConfig {
             stream_output: true,
         }
     }
-    
+
     /// Create config for silent operation
     pub fn silent() -> Self {
         Self {

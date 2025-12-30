@@ -1,18 +1,21 @@
 //! OpenAI API provider implementation.
 //!
 //! This provider connects to OpenAI's API for GPT models.
-//! 
+//!
 //! **Status: NOT YET IMPLEMENTED** - See README.md "TODO - Work in Progress" section
 //! This is a placeholder implementation that returns appropriate errors.
 //! Future implementation will support GPT-4, GPT-3.5, and other OpenAI models.
 
-use crate::llm::traits::{LlmProvider, ProviderType, LlmError, ChatResponse, ChatConfig, Tool, StreamEvent, ProviderCapabilities, HealthStatus};
+use crate::llm::traits::{
+    ChatConfig, ChatResponse, HealthStatus, LlmError, LlmProvider, ProviderCapabilities,
+    ProviderType, StreamEvent, Tool,
+};
 use crate::types::Messages;
 use async_trait::async_trait;
 use futures::Stream;
 
 /// OpenAI API provider - NOT YET IMPLEMENTED
-/// 
+///
 /// This provider connects to OpenAI's API for GPT models.
 /// See README.md "🚧 Planned Providers (Not Yet Implemented)" section.
 #[derive(Debug)]
@@ -30,10 +33,14 @@ pub struct OpenAIProvider {
 
 impl OpenAIProvider {
     /// Create a new OpenAI provider
-    pub async fn new(api_key: String, organization: Option<String>, base_url: Option<String>) -> Result<Self, LlmError> {
+    pub async fn new(
+        api_key: String,
+        organization: Option<String>,
+        base_url: Option<String>,
+    ) -> Result<Self, LlmError> {
         let client = reqwest::Client::new();
         let base_url = base_url.unwrap_or_else(|| "https://api.openai.com".to_string());
-        
+
         Ok(Self {
             api_key,
             organization,
@@ -56,7 +63,7 @@ impl LlmProvider for OpenAIProvider {
             provider: ProviderType::OpenAI,
         })
     }
-    
+
     async fn chat_with_tools(
         &self,
         _model_id: &str,
@@ -69,7 +76,7 @@ impl LlmProvider for OpenAIProvider {
             provider: ProviderType::OpenAI,
         })
     }
-    
+
     async fn chat_streaming(
         &self,
         _model_id: &str,
@@ -81,7 +88,7 @@ impl LlmProvider for OpenAIProvider {
             provider: ProviderType::OpenAI,
         })
     }
-    
+
     async fn chat_streaming_with_tools(
         &self,
         _model_id: &str,
@@ -94,7 +101,7 @@ impl LlmProvider for OpenAIProvider {
             provider: ProviderType::OpenAI,
         })
     }
-    
+
     async fn health_check(&self) -> Result<HealthStatus, LlmError> {
         Ok(HealthStatus {
             healthy: false,
@@ -103,11 +110,11 @@ impl LlmProvider for OpenAIProvider {
             error: Some("OpenAI API provider not yet implemented".to_string()),
         })
     }
-    
+
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             supports_streaming: false, // Will be true when implemented
-            supports_tools: false, // Will be true when implemented  
+            supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
             max_tokens: Some(4096),
@@ -119,20 +126,15 @@ impl LlmProvider for OpenAIProvider {
             ],
         }
     }
-    
+
     fn provider_type(&self) -> ProviderType {
         ProviderType::OpenAI
     }
-    
+
     fn supported_models(&self) -> Vec<&'static str> {
-        vec![
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4-turbo",
-            "gpt-3.5-turbo",
-        ]
+        vec!["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"]
     }
-    
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

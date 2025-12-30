@@ -3,18 +3,18 @@
 //! This module provides comprehensive performance testing to compare MCP tool execution
 //! against native tool execution, measuring latency, throughput, and resource usage.
 
-use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::mcp::client::{MCPClient, MCPClientConfig};
-use crate::mcp::transport::{MCPTransport, TransportInfo, TransportStreams};
-use crate::mcp::types::{Content, Tool as MCPTool, TextContent, CallToolResult};
 use crate::mcp::error::MCPOperationError;
-use crate::tools::{ToolRegistry, ToolUse};
-use crate::tools::mcp_adapter::MCPAgentTool;
+use crate::mcp::transport::{MCPTransport, TransportInfo, TransportStreams};
+use crate::mcp::types::{CallToolResult, Content, TextContent, Tool as MCPTool};
 use crate::tools::builtin::CalculatorTool;
+use crate::tools::mcp_adapter::MCPAgentTool;
+use crate::tools::{ToolRegistry, ToolUse};
 use crate::StoodError;
 use async_trait::async_trait;
 use serde_json::json;
@@ -184,7 +184,11 @@ impl PerformanceMockTransport {
     }
 
     /// Execute tool with performance optimizations
-    pub fn execute_tool(&self, tool_name: &str, params: &serde_json::Value) -> std::result::Result<Vec<Content>, StoodError> {
+    pub fn execute_tool(
+        &self,
+        tool_name: &str,
+        params: &serde_json::Value,
+    ) -> std::result::Result<Vec<Content>, StoodError> {
         // Simulate network latency if configured
         if !self.simulated_latency.is_zero() {
             std::thread::sleep(self.simulated_latency);
@@ -221,7 +225,10 @@ impl PerformanceMockTransport {
                     text: format!("Computed sum: {}", sum),
                 })])
             }
-            _ => Err(StoodError::tool_error(format!("Tool '{}' not found", tool_name))),
+            _ => Err(StoodError::tool_error(format!(
+                "Tool '{}' not found",
+                tool_name
+            ))),
         }
     }
 }
@@ -230,7 +237,7 @@ impl PerformanceMockTransport {
 impl MCPTransport for PerformanceMockTransport {
     async fn connect(&mut self) -> std::result::Result<TransportStreams, MCPOperationError> {
         Err(MCPOperationError::transport(
-            "Performance mock transport - connection not implemented for benchmarking"
+            "Performance mock transport - connection not implemented for benchmarking",
         ))
     }
 
@@ -263,7 +270,7 @@ impl PerformanceMockMCPClient {
     pub fn new(simulated_latency: Duration) -> Self {
         let transport = PerformanceMockTransport::new(simulated_latency);
         let session_id = transport.session_id.clone();
-        
+
         Self {
             transport,
             session_id,
@@ -309,14 +316,14 @@ impl MCPPerformanceBenchmark {
     pub async fn new(iterations: usize) -> std::result::Result<Self, StoodError> {
         // Create native tool registry
         let native_registry = Arc::new(ToolRegistry::new());
-        
+
         // Register native calculator tool
         let calculator = CalculatorTool::default();
         native_registry.register_tool(Box::new(calculator)).await?;
 
         // Create MCP tool registry
         let mcp_registry = Arc::new(ToolRegistry::new());
-        
+
         // Register MCP tools with minimal latency for fair comparison
         let mock_client = PerformanceMockMCPClient::new(Duration::from_micros(1));
         let tools = mock_client.list_tools().await?;
@@ -350,7 +357,10 @@ impl MCPPerformanceBenchmark {
             };
 
             let start = Instant::now();
-            let result = self.native_registry.execute_tool(&tool_use.name, Some(tool_use.input.clone()), None).await;
+            let result = self
+                .native_registry
+                .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
+                .await;
             let duration = start.elapsed();
 
             durations.push(duration);
@@ -361,11 +371,7 @@ impl MCPPerformanceBenchmark {
             }
         }
 
-        BenchmarkResults::from_durations(
-            "Native Calculator".to_string(),
-            durations,
-            successes,
-        )
+        BenchmarkResults::from_durations("Native Calculator".to_string(), durations, successes)
     }
 
     /// Benchmark MCP tool execution
@@ -381,7 +387,10 @@ impl MCPPerformanceBenchmark {
             };
 
             let start = Instant::now();
-            let result = self.mcp_registry.execute_tool(&tool_use.name, Some(tool_use.input.clone()), None).await;
+            let result = self
+                .mcp_registry
+                .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
+                .await;
             let duration = start.elapsed();
 
             durations.push(duration);
@@ -392,11 +401,7 @@ impl MCPPerformanceBenchmark {
             }
         }
 
-        BenchmarkResults::from_durations(
-            "MCP Calculator".to_string(),
-            durations,
-            successes,
-        )
+        BenchmarkResults::from_durations("MCP Calculator".to_string(), durations, successes)
     }
 
     /// Benchmark tool registration performance
@@ -406,7 +411,8 @@ impl MCPPerformanceBenchmark {
             let mut durations = Vec::new();
             let mut successes = 0;
 
-            for _i in 0..self.iterations.min(100) { // Limit to avoid excessive registrations
+            for _i in 0..self.iterations.min(100) {
+                // Limit to avoid excessive registrations
                 let registry = ToolRegistry::new();
                 let calculator = CalculatorTool::default();
 
@@ -432,9 +438,10 @@ impl MCPPerformanceBenchmark {
             let mut durations = Vec::new();
             let mut successes = 0;
 
-            for i in 0..self.iterations.min(100) { // Limit to avoid excessive registrations
+            for i in 0..self.iterations.min(100) {
+                // Limit to avoid excessive registrations
                 let registry = ToolRegistry::new();
-                
+
                 let tool = MCPTool {
                     name: format!("test_tool_{}", i),
                     description: "Test tool for benchmarking".to_string(),
@@ -443,7 +450,8 @@ impl MCPPerformanceBenchmark {
 
                 let mcp_client_config = MCPClientConfig::default();
                 let transport = Box::new(PerformanceMockTransport::new(Duration::ZERO));
-                let mcp_client = Arc::new(RwLock::new(MCPClient::new(mcp_client_config, transport)));
+                let mcp_client =
+                    Arc::new(RwLock::new(MCPClient::new(mcp_client_config, transport)));
                 let adapter = MCPAgentTool::new(tool, mcp_client, Some("bench_".to_string()));
 
                 let start = Instant::now();
@@ -476,10 +484,10 @@ impl MCPPerformanceBenchmark {
         println!("📊 Tool Execution Benchmarks:");
         let native_calc = self.benchmark_native_calculator().await;
         println!("   {}", native_calc.display());
-        
+
         let mcp_calc = self.benchmark_mcp_calculator().await;
         println!("   {}", mcp_calc.display());
-        
+
         let calc_ratio = mcp_calc.performance_ratio(&native_calc);
         println!("   📈 MCP/Native ratio: {:.2}x", calc_ratio);
         println!();
@@ -489,7 +497,7 @@ impl MCPPerformanceBenchmark {
         let (native_reg, mcp_reg) = self.benchmark_tool_registration().await;
         println!("   {}", native_reg.display());
         println!("   {}", mcp_reg.display());
-        
+
         let reg_ratio = mcp_reg.performance_ratio(&native_reg);
         println!("   📈 MCP/Native ratio: {:.2}x", reg_ratio);
         println!();
@@ -541,8 +549,10 @@ impl PerformanceReport {
              Tool Registration: {} ({:.2}x overhead)\n\
              \n\
              📝 Summary: MCP tools have {:.1}% execution overhead and {:.1}% registration overhead",
-            exec_status, self.execution_ratio,
-            reg_status, self.registration_ratio,
+            exec_status,
+            self.execution_ratio,
+            reg_status,
+            self.registration_ratio,
             (self.execution_ratio - 1.0) * 100.0,
             (self.registration_ratio - 1.0) * 100.0
         )
@@ -556,30 +566,39 @@ mod tests {
     #[tokio::test]
     async fn test_performance_mock_transport() {
         let transport = PerformanceMockTransport::new(Duration::ZERO);
-        
+
         // Test calculator tool
-        let result = transport.execute_tool("calculator", &json!({"expression": "1 + 1"})).unwrap();
+        let result = transport
+            .execute_tool("calculator", &json!({"expression": "1 + 1"}))
+            .unwrap();
         assert_eq!(result.len(), 1);
-        
+
         // Test echo tool
-        let result = transport.execute_tool("echo", &json!({"message": "test"})).unwrap();
+        let result = transport
+            .execute_tool("echo", &json!({"message": "test"}))
+            .unwrap();
         assert_eq!(result.len(), 1);
-        
+
         // Test compute tool
-        let result = transport.execute_tool("compute", &json!({"iterations": 100})).unwrap();
+        let result = transport
+            .execute_tool("compute", &json!({"iterations": 100}))
+            .unwrap();
         assert_eq!(result.len(), 1);
     }
 
     #[tokio::test]
     async fn test_performance_mock_client() {
         let client = PerformanceMockMCPClient::new(Duration::ZERO);
-        
+
         // Test tool listing
         let tools = client.list_tools().await.unwrap();
         assert_eq!(tools.len(), 3);
-        
+
         // Test tool execution
-        let result = client.call_tool("calculator", json!({"expression": "1 + 1"})).await.unwrap();
+        let result = client
+            .call_tool("calculator", json!({"expression": "1 + 1"}))
+            .await
+            .unwrap();
         assert_eq!(result.content.len(), 1);
         assert!(result.is_error.is_none());
     }
@@ -591,13 +610,9 @@ mod tests {
             Duration::from_millis(20),
             Duration::from_millis(15),
         ];
-        
-        let results = BenchmarkResults::from_durations(
-            "Test".to_string(),
-            durations,
-            3,
-        );
-        
+
+        let results = BenchmarkResults::from_durations("Test".to_string(), durations, 3);
+
         assert_eq!(results.operations, 3);
         assert_eq!(results.success_rate, 1.0);
         assert_eq!(results.min_duration, Duration::from_millis(10));
@@ -607,7 +622,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_performance_benchmark_creation() {
         let benchmark = MCPPerformanceBenchmark::new(10).await.unwrap();
-        
+
         // Verify that both registries have tools
         assert!(benchmark.native_registry.has_tool("calculator").await);
         assert!(benchmark.mcp_registry.has_tool("perf_calculator").await);
@@ -616,35 +631,47 @@ mod tests {
     #[tokio::test]
     async fn test_performance_benchmark_execution() {
         let benchmark = MCPPerformanceBenchmark::new(5).await.unwrap();
-        
+
         // Run a small benchmark
         let native_results = benchmark.benchmark_native_calculator().await;
         let mcp_results = benchmark.benchmark_mcp_calculator().await;
-        
+
         // Verify results
         assert_eq!(native_results.operations, 5);
         assert_eq!(mcp_results.operations, 5);
         assert!(native_results.success_rate > 0.8); // At least 80% success
         assert!(mcp_results.success_rate > 0.8);
-        
+
         // Performance ratio should be reasonable (MCP shouldn't be more than 10x slower)
         let ratio = mcp_results.performance_ratio(&native_results);
-        assert!(ratio < 10.0, "MCP tools are too slow compared to native: {}x", ratio);
+        assert!(
+            ratio < 10.0,
+            "MCP tools are too slow compared to native: {}x",
+            ratio
+        );
     }
 
     #[tokio::test]
     async fn test_comprehensive_benchmark() {
         let benchmark = MCPPerformanceBenchmark::new(3).await.unwrap();
         let report = benchmark.run_comprehensive_benchmark().await;
-        
+
         // Verify report structure
         assert!(report.execution_ratio > 0.0);
         assert!(report.registration_ratio > 0.0);
-        
+
         // Performance should be reasonable
-        assert!(report.execution_ratio < 20.0, "Execution ratio too high: {}", report.execution_ratio);
-        assert!(report.registration_ratio < 50.0, "Registration ratio too high: {}", report.registration_ratio);
-        
+        assert!(
+            report.execution_ratio < 20.0,
+            "Execution ratio too high: {}",
+            report.execution_ratio
+        );
+        assert!(
+            report.registration_ratio < 50.0,
+            "Registration ratio too high: {}",
+            report.registration_ratio
+        );
+
         // Test performance assessment
         let assessment = report.performance_assessment();
         assert!(assessment.contains("Performance Assessment"));

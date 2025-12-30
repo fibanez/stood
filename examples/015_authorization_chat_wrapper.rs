@@ -20,11 +20,11 @@ use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use stood::agent::callbacks::{CallbackHandler, CallbackEvent};
 use stood::agent::callbacks::error::CallbackError;
-use stood::agent::{Agent};
-use stood::tools::builtin::{CalculatorTool, CurrentTimeTool};
+use stood::agent::callbacks::{CallbackEvent, CallbackHandler};
+use stood::agent::Agent;
 use stood::tool;
+use stood::tools::builtin::{CalculatorTool, CurrentTimeTool};
 
 /// Custom tool for demonstration
 #[tool]
@@ -32,7 +32,7 @@ use stood::tool;
 async fn secure_file_read(filename: String) -> Result<String, String> {
     match std::fs::read_to_string(&filename) {
         Ok(contents) => Ok(format!("File '{}' contents:\n{}", filename, contents)),
-        Err(e) => Err(format!("Failed to read file '{}': {}", filename, e))
+        Err(e) => Err(format!("Failed to read file '{}': {}", filename, e)),
     }
 }
 
@@ -41,8 +41,12 @@ async fn secure_file_read(filename: String) -> Result<String, String> {
 /// Write content to a file (requires authorization)
 async fn secure_file_write(filename: String, content: String) -> Result<String, String> {
     match std::fs::write(&filename, &content) {
-        Ok(_) => Ok(format!("Successfully wrote {} bytes to '{}'", content.len(), filename)),
-        Err(e) => Err(format!("Failed to write to file '{}': {}", filename, e))
+        Ok(_) => Ok(format!(
+            "Successfully wrote {} bytes to '{}'",
+            content.len(),
+            filename
+        )),
+        Err(e) => Err(format!("Failed to write to file '{}': {}", filename, e)),
     }
 }
 
@@ -77,8 +81,11 @@ impl AuthorizationWrapper {
         // Check cache first
         let cache = self.decision_cache.lock().await;
         if let Some(&decision) = cache.get(tool_name) {
-            println!("\n🔄 Using cached decision for tool '{}': {}", tool_name, 
-                if decision { "APPROVED" } else { "DENIED" });
+            println!(
+                "\n🔄 Using cached decision for tool '{}': {}",
+                tool_name,
+                if decision { "APPROVED" } else { "DENIED" }
+            );
             return Ok(decision);
         }
         drop(cache);
@@ -88,7 +95,10 @@ impl AuthorizationWrapper {
         println!("🔒 TOOL AUTHORIZATION REQUEST");
         println!("{}", "=".repeat(60));
         println!("Tool: {}", tool_name);
-        println!("Input: {}", serde_json::to_string_pretty(input).unwrap_or_else(|_| "Invalid JSON".to_string()));
+        println!(
+            "Input: {}",
+            serde_json::to_string_pretty(input).unwrap_or_else(|_| "Invalid JSON".to_string())
+        );
         println!("{}", "-".repeat(60));
         print!("Allow this tool to execute? (y/n/a=always/d=deny always): ");
         io::stdout().flush().unwrap();
@@ -127,26 +137,45 @@ impl AuthorizationWrapper {
 impl CallbackHandler for AuthorizationWrapper {
     async fn handle_event(&self, event: CallbackEvent) -> std::result::Result<(), CallbackError> {
         match event {
-            CallbackEvent::ToolStart { tool_name, input, .. } => {
+            CallbackEvent::ToolStart {
+                tool_name, input, ..
+            } => {
                 println!("\n🔧 Tool execution requested: {}", tool_name);
-                
+
                 // Request user approval
-                if !self.request_user_approval(&tool_name, &input).await.map_err(|e| CallbackError::ExecutionFailed(format!("Authorization error: {}", e)))? {
+                if !self
+                    .request_user_approval(&tool_name, &input)
+                    .await
+                    .map_err(|e| {
+                        CallbackError::ExecutionFailed(format!("Authorization error: {}", e))
+                    })?
+                {
                     // User denied - return error to prevent execution
                     return Err(CallbackError::ExecutionFailed(format!(
                         "User denied execution of tool '{}'",
                         tool_name
                     )));
                 }
-                
+
                 println!("✅ Tool execution APPROVED: {}", tool_name);
                 Ok(())
             }
-            CallbackEvent::ToolComplete { tool_name, error, duration, .. } => {
+            CallbackEvent::ToolComplete {
+                tool_name,
+                error,
+                duration,
+                ..
+            } => {
                 if let Some(error) = error {
-                    println!("❌ Tool '{}' failed: {} (duration: {:?})", tool_name, error, duration);
+                    println!(
+                        "❌ Tool '{}' failed: {} (duration: {:?})",
+                        tool_name, error, duration
+                    );
                 } else {
-                    println!("✅ Tool '{}' completed successfully (duration: {:?})", tool_name, duration);
+                    println!(
+                        "✅ Tool '{}' completed successfully (duration: {:?})",
+                        tool_name, duration
+                    );
                 }
                 Ok(())
             }
@@ -158,9 +187,7 @@ impl CallbackHandler for AuthorizationWrapper {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize minimal logging (errors only)
-    tracing_subscriber::fmt()
-        .with_env_filter("error")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("error").init();
 
     println!("🔒 Authorization Chat Wrapper Demo");
     println!("This example demonstrates tool authorization via callbacks.");
@@ -237,10 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("\n📊 Session Authorization Summary:");
         println!("{}", "-".repeat(40));
         for (tool, approved) in cache.iter() {
-            println!("  {} {}", 
-                if *approved { "✅" } else { "❌" },
-                tool
-            );
+            println!("  {} {}", if *approved { "✅" } else { "❌" }, tool);
         }
         println!("{}", "-".repeat(40));
     }
@@ -259,7 +283,7 @@ mod tests {
             interactive: false,
             decision_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
-        
+
         // Should auto-approve in non-interactive mode
         let result = wrapper_test
             .request_user_approval("test_tool", &serde_json::json!({"test": "value"}))
@@ -276,7 +300,7 @@ mod tests {
             tool_use_id: "test_id".to_string(),
             input: serde_json::json!({"expression": "2+2"}),
         };
-        
+
         // In non-interactive mode, this should succeed
         let wrapper_test = AuthorizationWrapper {
             interactive: false,

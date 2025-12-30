@@ -19,16 +19,16 @@
 //!     let mut bedrock_agent = Agent::builder()
 //!         .model(Bedrock::ClaudeHaiku45)
 //!         .build().await?;
-//!     
+//!
 //!     // Use LM Studio (local)
 //!     let mut local_agent = Agent::builder()
 //!         .model(LMStudio::Gemma3_12B)
 //!         .build().await?;
-//!     
+//!
 //!     // Same API for both providers
 //!     let result1 = bedrock_agent.execute("Hello from cloud").await?;
 //!     let result2 = local_agent.execute("Hello from local").await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -79,14 +79,14 @@
 //! - [`ChatConfig`] - Provider-agnostic chat configuration
 //! - [`ChatResponse`] - Unified response format across providers
 
-pub mod traits;
 pub mod client;
-pub mod error;
 pub mod config;
-pub mod streaming;
+pub mod error;
 pub mod models;
 pub mod providers;
 pub mod registry;
+pub mod streaming;
+pub mod traits;
 
 #[cfg(test)]
 pub mod integration_test;
@@ -96,13 +96,12 @@ pub mod tests;
 
 // Re-export core types for convenience
 pub use traits::{
-    LlmProvider, LlmModel, ProviderType, ChatConfig, ChatResponse, 
-    ToolCall, Tool, StreamEvent, Usage, HealthStatus, 
-    ProviderCapabilities, ModelCapabilities, LlmError
+    ChatConfig, ChatResponse, HealthStatus, LlmError, LlmModel, LlmProvider, ModelCapabilities,
+    ProviderCapabilities, ProviderType, StreamEvent, Tool, ToolCall, Usage,
 };
 
 // Re-export model provider modules for the single API pattern
 pub use models::{Bedrock, LMStudio};
 
 // Re-export registry for configuration
-pub use registry::{ProviderRegistry, ProviderConfig, PROVIDER_REGISTRY};
+pub use registry::{ProviderConfig, ProviderRegistry, PROVIDER_REGISTRY};

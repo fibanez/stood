@@ -4,17 +4,17 @@
 //! integration behavior under adverse conditions including connection failures,
 //! timeouts, network issues, and server errors.
 
-use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::mcp::client::{MCPClient, MCPClientConfig};
-use crate::mcp::transport::{MCPTransport, TransportInfo, TransportStreams};
-use crate::mcp::types::{Content, Tool as MCPTool, TextContent, CallToolResult};
 use crate::mcp::error::MCPOperationError;
-use crate::tools::{ToolRegistry, ToolUse};
+use crate::mcp::transport::{MCPTransport, TransportInfo, TransportStreams};
+use crate::mcp::types::{CallToolResult, Content, TextContent, Tool as MCPTool};
 use crate::tools::mcp_adapter::MCPAgentTool;
+use crate::tools::{ToolRegistry, ToolUse};
 use crate::StoodError;
 use async_trait::async_trait;
 use serde_json::json;
@@ -157,7 +157,11 @@ impl ErrorScenarioTransport {
     }
 
     /// Execute tool with error simulation
-    pub async fn execute_tool(&self, tool_name: &str, params: &serde_json::Value) -> std::result::Result<Vec<Content>, StoodError> {
+    pub async fn execute_tool(
+        &self,
+        tool_name: &str,
+        params: &serde_json::Value,
+    ) -> std::result::Result<Vec<Content>, StoodError> {
         // Increment failure trigger
         {
             let mut trigger = self.failure_trigger.write().await;
@@ -168,7 +172,8 @@ impl ErrorScenarioTransport {
         match &self.scenario {
             ErrorScenario::ConnectionLoss => {
                 let trigger = *self.failure_trigger.read().await;
-                if trigger > 2 { // Fail after a few operations
+                if trigger > 2 {
+                    // Fail after a few operations
                     return Err(StoodError::tool_error("Connection lost during operation"));
                 }
             }
@@ -183,10 +188,14 @@ impl ErrorScenarioTransport {
                 }
             }
             ErrorScenario::InvalidResponse => {
-                return Err(StoodError::serialization_error("Invalid JSON response from server"));
+                return Err(StoodError::serialization_error(
+                    "Invalid JSON response from server",
+                ));
             }
             ErrorScenario::ServerOverload => {
-                return Err(StoodError::tool_error("Server overloaded, please retry later"));
+                return Err(StoodError::tool_error(
+                    "Server overloaded, please retry later",
+                ));
             }
             ErrorScenario::AuthenticationFailure => {
                 return Err(StoodError::configuration_error("Authentication failed"));
@@ -196,7 +205,8 @@ impl ErrorScenarioTransport {
             }
             ErrorScenario::NetworkPartition => {
                 let trigger = *self.failure_trigger.read().await;
-                if trigger % 3 == 0 { // Intermittent failure
+                if trigger % 3 == 0 {
+                    // Intermittent failure
                     return Err(StoodError::tool_error("Network partition detected"));
                 }
             }
@@ -226,7 +236,10 @@ impl ErrorScenarioTransport {
                     text: format!("Reliable response: {}", message),
                 })])
             }
-            _ => Err(StoodError::tool_error(format!("Tool '{}' not found", tool_name))),
+            _ => Err(StoodError::tool_error(format!(
+                "Tool '{}' not found",
+                tool_name
+            ))),
         }
     }
 }
@@ -249,7 +262,9 @@ impl MCPTransport for ErrorScenarioTransport {
             _ => {
                 self.connected = true;
                 // Return minimal transport streams for error testing
-                Err(MCPOperationError::transport("Error scenario transport - connection not implemented"))
+                Err(MCPOperationError::transport(
+                    "Error scenario transport - connection not implemented",
+                ))
             }
         }
     }
@@ -262,9 +277,8 @@ impl MCPTransport for ErrorScenarioTransport {
     fn is_connected(&self) -> bool {
         match &self.scenario {
             ErrorScenario::ConnectionLoss => {
-                let trigger = futures::executor::block_on(async {
-                    *self.failure_trigger.read().await
-                });
+                let trigger =
+                    futures::executor::block_on(async { *self.failure_trigger.read().await });
                 trigger <= 2 // Lose connection after some operations
             }
             _ => self.connected,
@@ -293,7 +307,7 @@ impl ErrorScenarioMCPClient {
     pub fn new(scenario: ErrorScenario) -> Self {
         let transport = ErrorScenarioTransport::new(scenario.clone());
         let session_id = transport.session_id.clone();
-        
+
         Self {
             transport,
             session_id,
@@ -303,9 +317,9 @@ impl ErrorScenarioMCPClient {
 
     pub async fn list_tools(&self) -> std::result::Result<Vec<MCPTool>, StoodError> {
         match &self.scenario {
-            ErrorScenario::ConnectionRefused | ErrorScenario::ConnectionTimeout => {
-                Err(StoodError::tool_error("Cannot list tools - connection failed"))
-            }
+            ErrorScenario::ConnectionRefused | ErrorScenario::ConnectionTimeout => Err(
+                StoodError::tool_error("Cannot list tools - connection failed"),
+            ),
             ErrorScenario::InvalidResponse => {
                 Err(StoodError::serialization_error("Invalid response format"))
             }
@@ -374,7 +388,7 @@ impl MCPErrorScenarioTester {
 
         // Create error scenario client
         let client = ErrorScenarioMCPClient::new(scenario.clone());
-        
+
         // Test tool listing
         let list_result = client.list_tools().await;
         let detection_time = start_time.elapsed();
@@ -382,16 +396,17 @@ impl MCPErrorScenarioTester {
         match list_result {
             Ok(_) => {
                 // If listing succeeded, test tool execution
-                let tool_result = client.call_tool(
-                    "error_prone_tool",
-                    json!({"data": "test_data"})
-                ).await;
+                let tool_result = client
+                    .call_tool("error_prone_tool", json!({"data": "test_data"}))
+                    .await;
 
                 match tool_result {
                     Ok(result) => {
                         if result.is_error == Some(true) {
                             graceful_handling = true;
-                            error_details = result.content.first()
+                            error_details = result
+                                .content
+                                .first()
                                 .map(|c| match c {
                                     Content::Text(text) => text.text.clone(),
                                     _ => "Unknown error".to_string(),
@@ -410,11 +425,11 @@ impl MCPErrorScenarioTester {
             Err(e) => {
                 graceful_handling = true; // Error was properly handled
                 error_details = e.to_string();
-                
+
                 // Attempt recovery
                 recovery_attempted = true;
                 retry_attempts = 1;
-                
+
                 // Simple retry test
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 let retry_result = client.list_tools().await;
@@ -446,11 +461,11 @@ impl MCPErrorScenarioTester {
 
         for scenario in &self.scenarios {
             let start_time = Instant::now();
-            
+
             // Create registry with error scenario tools
             let registry = Arc::new(ToolRegistry::new());
             let client = ErrorScenarioMCPClient::new(scenario.clone());
-            
+
             let mut graceful_handling = false;
             let mut error_details = String::new();
 
@@ -460,10 +475,12 @@ impl MCPErrorScenarioTester {
                     for tool in tools {
                         let mcp_client_config = MCPClientConfig::default();
                         let transport = Box::new(ErrorScenarioTransport::new(scenario.clone()));
-                        let mcp_client = Arc::new(RwLock::new(MCPClient::new(mcp_client_config, transport)));
+                        let mcp_client =
+                            Arc::new(RwLock::new(MCPClient::new(mcp_client_config, transport)));
 
-                        let adapter = MCPAgentTool::new(tool, mcp_client, Some("error_".to_string()));
-                        
+                        let adapter =
+                            MCPAgentTool::new(tool, mcp_client, Some("error_".to_string()));
+
                         match registry.register_tool(Box::new(adapter)).await {
                             Ok(_) => {
                                 graceful_handling = true;
@@ -483,10 +500,14 @@ impl MCPErrorScenarioTester {
                         input: json!({"data": "registry_test"}),
                     };
 
-                    let execution_result = registry.execute_tool(&tool_use.name, Some(tool_use.input.clone()), None).await;
+                    let execution_result = registry
+                        .execute_tool(&tool_use.name, Some(tool_use.input.clone()), None)
+                        .await;
                     match execution_result {
                         Ok(result) => {
-                            if result.content.to_string().contains("Error") || result.error.is_some() {
+                            if result.content.to_string().contains("Error")
+                                || result.error.is_some()
+                            {
                                 graceful_handling = true;
                             }
                         }
@@ -533,9 +554,14 @@ impl MCPErrorScenarioTester {
         println!("📊 Client Error Scenario Tests:");
         for scenario in &self.scenarios {
             let result = self.test_error_scenario(scenario.clone()).await;
-            println!("   {:?}: {} ({}ms)", 
+            println!(
+                "   {:?}: {} ({}ms)",
                 result.scenario,
-                if result.graceful_handling { "✅ Handled" } else { "❌ Failed" },
+                if result.graceful_handling {
+                    "✅ Handled"
+                } else {
+                    "❌ Failed"
+                },
                 result.error_detection_time.as_millis()
             );
             client_results.push(result);
@@ -546,9 +572,14 @@ impl MCPErrorScenarioTester {
         println!("📊 Registry Error Handling Tests:");
         let registry_results = self.test_tool_registry_error_handling().await;
         for result in &registry_results {
-            println!("   {:?}: {} ({}ms)", 
+            println!(
+                "   {:?}: {} ({}ms)",
                 result.scenario,
-                if result.graceful_handling { "✅ Handled" } else { "❌ Failed" },
+                if result.graceful_handling {
+                    "✅ Handled"
+                } else {
+                    "❌ Failed"
+                },
                 result.error_detection_time.as_millis()
             );
         }
@@ -578,7 +609,9 @@ impl ErrorScenarioReport {
             return 0.0;
         }
 
-        let successful = self.client_scenarios.iter()
+        let successful = self
+            .client_scenarios
+            .iter()
             .chain(self.registry_scenarios.iter())
             .filter(|r| r.graceful_handling)
             .count();
@@ -600,10 +633,18 @@ impl ErrorScenarioReport {
         };
 
         let avg_detection_time = {
-            let all_results = self.client_scenarios.iter()
+            let all_results = self
+                .client_scenarios
+                .iter()
                 .chain(self.registry_scenarios.iter());
-            let times: Vec<_> = all_results.map(|r| r.error_detection_time.as_millis()).collect();
-            if times.is_empty() { 0 } else { times.iter().sum::<u128>() / times.len() as u128 }
+            let times: Vec<_> = all_results
+                .map(|r| r.error_detection_time.as_millis())
+                .collect();
+            if times.is_empty() {
+                0
+            } else {
+                times.iter().sum::<u128>() / times.len() as u128
+            }
         };
 
         format!(
@@ -615,11 +656,18 @@ impl ErrorScenarioReport {
              \n\
              📝 Summary: MCP integration demonstrates {} error resilience\n\
              🔧 Recommendation: {}",
-            status, success_rate * 100.0,
+            status,
+            success_rate * 100.0,
             avg_detection_time,
-            self.client_scenarios.iter().filter(|r| r.graceful_handling).count(),
+            self.client_scenarios
+                .iter()
+                .filter(|r| r.graceful_handling)
+                .count(),
             self.client_scenarios.len(),
-            self.registry_scenarios.iter().filter(|r| r.graceful_handling).count(),
+            self.registry_scenarios
+                .iter()
+                .filter(|r| r.graceful_handling)
+                .count(),
             self.registry_scenarios.len(),
             status.to_lowercase(),
             if success_rate >= 0.85 {
@@ -647,19 +695,25 @@ mod tests {
         let client = ErrorScenarioMCPClient::new(ErrorScenario::ConnectionRefused);
         let result = client.list_tools().await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("connection failed"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("connection failed"));
     }
 
     #[tokio::test]
     async fn test_server_error_scenario() {
         let client = ErrorScenarioMCPClient::new(ErrorScenario::ServerError);
-        
+
         // This should succeed (list tools works)
         let tools = client.list_tools().await.unwrap();
         assert!(!tools.is_empty());
-        
+
         // But tool execution should fail
-        let result = client.call_tool("error_prone_tool", json!({"data": "test"})).await.unwrap();
+        let result = client
+            .call_tool("error_prone_tool", json!({"data": "test"}))
+            .await
+            .unwrap();
         assert_eq!(result.is_error, Some(true));
     }
 
@@ -668,20 +722,23 @@ mod tests {
         let client = ErrorScenarioMCPClient::new(ErrorScenario::NetworkPartition);
         let tools = client.list_tools().await.unwrap();
         assert!(!tools.is_empty());
-        
+
         // Multiple calls should show intermittent failures
         let mut successes = 0;
         let mut failures = 0;
-        
+
         for _ in 0..6 {
-            let result = client.call_tool("error_prone_tool", json!({"data": "test"})).await.unwrap();
+            let result = client
+                .call_tool("error_prone_tool", json!({"data": "test"}))
+                .await
+                .unwrap();
             if result.is_error == Some(true) {
                 failures += 1;
             } else {
                 successes += 1;
             }
         }
-        
+
         // Should have both successes and failures due to intermittent nature
         assert!(successes > 0);
         assert!(failures > 0);
@@ -691,7 +748,7 @@ mod tests {
     async fn test_error_scenario_tester() {
         let tester = MCPErrorScenarioTester::new();
         assert_eq!(tester.scenarios.len(), 10);
-        
+
         // Test a single scenario
         let result = tester.test_error_scenario(ErrorScenario::ServerError).await;
         assert!(result.graceful_handling);
@@ -702,9 +759,9 @@ mod tests {
     async fn test_tool_registry_error_handling() {
         let tester = MCPErrorScenarioTester::new();
         let results = tester.test_tool_registry_error_handling().await;
-        
+
         assert_eq!(results.len(), 10); // One for each scenario
-        
+
         // Most scenarios should be handled gracefully
         let handled_count = results.iter().filter(|r| r.graceful_handling).count();
         assert!(handled_count >= 8); // At least 80% should be handled well
@@ -713,26 +770,30 @@ mod tests {
     #[tokio::test]
     async fn test_error_scenario_report() {
         let tester = MCPErrorScenarioTester::new();
-        
+
         // Test a subset for speed
         let client_results = vec![
             tester.test_error_scenario(ErrorScenario::ServerError).await,
-            tester.test_error_scenario(ErrorScenario::ConnectionTimeout).await,
+            tester
+                .test_error_scenario(ErrorScenario::ConnectionTimeout)
+                .await,
         ];
-        
+
         let registry_results = vec![
-            tester.test_error_scenario(ErrorScenario::InvalidResponse).await,
+            tester
+                .test_error_scenario(ErrorScenario::InvalidResponse)
+                .await,
         ];
-        
+
         let report = ErrorScenarioReport {
             client_scenarios: client_results,
             registry_scenarios: registry_results,
             total_scenarios: 3,
         };
-        
+
         let success_rate = report.success_rate();
         assert!(success_rate > 0.0);
-        
+
         let assessment = report.resilience_assessment();
         assert!(assessment.contains("Error Resilience Assessment"));
     }
@@ -741,16 +802,16 @@ mod tests {
     async fn test_comprehensive_error_testing() {
         let tester = MCPErrorScenarioTester::new();
         let report = tester.run_comprehensive_error_testing().await;
-        
+
         // Verify report structure
         assert_eq!(report.client_scenarios.len(), 10);
         assert_eq!(report.registry_scenarios.len(), 10);
         assert_eq!(report.total_scenarios, 10);
-        
+
         // Should have high success rate for error handling
         let success_rate = report.success_rate();
         assert!(success_rate > 0.7, "Success rate too low: {}", success_rate);
-        
+
         // Assessment should be generated
         let assessment = report.resilience_assessment();
         assert!(assessment.contains("Assessment"));

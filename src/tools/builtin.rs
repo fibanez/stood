@@ -8,7 +8,7 @@
 //!
 //! ## File Operations
 //! - **[`FileReadTool`]** - Read text files from the filesystem
-//! - **[`FileWriteTool`]** - Write content to text files  
+//! - **[`FileWriteTool`]** - Write content to text files
 //! - **[`FileListTool`]** - List directory contents with metadata
 //!
 //! ## Web & Network
@@ -290,7 +290,7 @@
 //! Built-in tools follow the standard [`Tool`] trait with consistent patterns:
 //!
 //! 1. **Parameter Validation** - JSON schema-based parameter validation
-//! 2. **Error Handling** - Graceful error handling with descriptive messages  
+//! 2. **Error Handling** - Graceful error handling with descriptive messages
 //! 3. **Result Format** - Consistent success/error result structure
 //! 4. **Async Execution** - All tools support async operation
 //!
@@ -1085,7 +1085,9 @@ pub async fn create_builtin_tools() -> Result<ToolRegistry, crate::tools::ToolEr
         .register_tool(Box::new(CurrentTimeTool::new()))
         .await?;
     registry.register_tool(Box::new(EnvVarTool::new())).await?;
-    registry.register_tool(Box::new(ThinkTool::default())).await?;
+    registry
+        .register_tool(Box::new(ThinkTool::default()))
+        .await?;
 
     Ok(registry)
 }
@@ -1105,9 +1107,10 @@ impl ThinkTool {
             prompt: prompt.into(),
         }
     }
-    
-    /// Create a ThinkTool with the default prompt
-    pub fn default() -> Self {
+}
+
+impl Default for ThinkTool {
+    fn default() -> Self {
         Self::new(
             "Think through this step by step. Break down the problem, consider different angles, \
              and work through your reasoning carefully before providing a final answer.\n\n\
@@ -1116,7 +1119,7 @@ impl ThinkTool {
              - What information do I have and what might I be missing?\n\
              - What are the different approaches I could take?\n\
              - What are the potential risks or considerations?\n\
-             - How can I verify my reasoning is sound?"
+             - How can I verify my reasoning is sound?",
         )
     }
 }
@@ -1271,7 +1274,7 @@ mod tests {
         assert!(registry.has_tool("env_var").await);
 
         let tool_names = registry.tool_names().await;
-        assert_eq!(tool_names.len(), 7);
+        assert_eq!(tool_names.len(), 8);
         assert!(tool_names.contains(&"calculator".to_string()));
         assert!(tool_names.contains(&"file_read".to_string()));
         assert!(tool_names.contains(&"file_write".to_string()));
@@ -1279,6 +1282,7 @@ mod tests {
         assert!(tool_names.contains(&"http_request".to_string()));
         assert!(tool_names.contains(&"current_time".to_string()));
         assert!(tool_names.contains(&"env_var".to_string()));
+        assert!(tool_names.contains(&"think".to_string()));
     }
 
     #[tokio::test]
@@ -1470,7 +1474,7 @@ mod tests {
     #[tokio::test]
     async fn test_think_tool_basic() {
         let tool = ThinkTool::default();
-        
+
         assert_eq!(tool.name(), "think");
         assert!(tool.description().contains("step by step"));
         assert!(tool.parameters_schema().is_object());
@@ -1480,53 +1484,107 @@ mod tests {
     #[tokio::test]
     async fn test_think_tool_execution() {
         let tool = ThinkTool::new("Think about this software problem carefully.");
-        
+
         let params = json!({
             "topic": "How to design a scalable database schema"
         });
-        
+
         let result = tool.execute(Some(params), None).await.unwrap();
-        
+
         assert!(result.success);
-        assert!(result.content.get("guidance").unwrap().as_str().unwrap().contains("How to design a scalable database schema"));
-        assert!(result.content.get("guidance").unwrap().as_str().unwrap().contains("Think about this software problem carefully"));
-        assert_eq!(result.content.get("topic").unwrap().as_str().unwrap(), "How to design a scalable database schema");
-        assert!(result.content.get("custom_prompt").unwrap().as_bool().unwrap());
+        assert!(result
+            .content
+            .get("guidance")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("How to design a scalable database schema"));
+        assert!(result
+            .content
+            .get("guidance")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Think about this software problem carefully"));
+        assert_eq!(
+            result.content.get("topic").unwrap().as_str().unwrap(),
+            "How to design a scalable database schema"
+        );
+        assert!(result
+            .content
+            .get("custom_prompt")
+            .unwrap()
+            .as_bool()
+            .unwrap());
     }
 
     #[tokio::test]
     async fn test_think_tool_missing_topic() {
         let tool = ThinkTool::default();
-        
+
         let params = json!({});
-        
+
         let result = tool.execute(Some(params), None).await;
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ToolError::InvalidParameters { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ToolError::InvalidParameters { .. }
+        ));
     }
 
     #[tokio::test]
     async fn test_think_tool_default_vs_custom() {
         let default_tool = ThinkTool::default();
         let custom_tool = ThinkTool::new("Custom legal thinking prompt.");
-        
+
         let params = json!({ "topic": "Contract dispute" });
-        
-        let default_result = default_tool.execute(Some(params.clone()), None).await.unwrap();
+
+        let default_result = default_tool
+            .execute(Some(params.clone()), None)
+            .await
+            .unwrap();
         let custom_result = custom_tool.execute(Some(params), None).await.unwrap();
-        
+
         // Default should not be marked as custom
-        assert!(!default_result.content.get("custom_prompt").unwrap().as_bool().unwrap());
-        
+        assert!(!default_result
+            .content
+            .get("custom_prompt")
+            .unwrap()
+            .as_bool()
+            .unwrap());
+
         // Custom should be marked as custom
-        assert!(custom_result.content.get("custom_prompt").unwrap().as_bool().unwrap());
-        
+        assert!(custom_result
+            .content
+            .get("custom_prompt")
+            .unwrap()
+            .as_bool()
+            .unwrap());
+
         // Both should contain the topic
-        assert!(default_result.content.get("guidance").unwrap().as_str().unwrap().contains("Contract dispute"));
-        assert!(custom_result.content.get("guidance").unwrap().as_str().unwrap().contains("Contract dispute"));
-        
+        assert!(default_result
+            .content
+            .get("guidance")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Contract dispute"));
+        assert!(custom_result
+            .content
+            .get("guidance")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Contract dispute"));
+
         // Custom should contain its prompt
-        assert!(custom_result.content.get("guidance").unwrap().as_str().unwrap().contains("Custom legal thinking prompt"));
+        assert!(custom_result
+            .content
+            .get("guidance")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("Custom legal thinking prompt"));
     }
 }

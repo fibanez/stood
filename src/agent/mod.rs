@@ -1,7 +1,7 @@
 //! Core agent implementation with multi-provider LLM support and agentic capabilities.
 //!
 //! This module provides the [`Agent`] struct that orchestrates conversations between
-//! users, multiple LLM providers (Bedrock, LM Studio, Anthropic, OpenAI), and tool systems. 
+//! users, multiple LLM providers (Bedrock, LM Studio, Anthropic, OpenAI), and tool systems.
 //! You'll get streaming responses, 5-phase agentic execution, and robust error handling for production deployments.
 //!
 //! # Quick Start
@@ -16,19 +16,19 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Simplest usage - defaults to Claude 3.5 Haiku via Bedrock
 //!     let mut agent = Agent::builder().build().await?;
-//!     
+//!
 //!     // Use Bedrock (cloud)
 //!     let mut agent = Agent::builder()
 //!         .model(Bedrock::ClaudeHaiku45)
 //!         .system_prompt("You are a helpful assistant")
 //!         .build().await?;
-//!         
+//!
 //!     // Use LM Studio (local)
 //!     let mut agent = Agent::builder()
 //!         .model(LMStudio::Gemma3_12B)
 //!         .system_prompt("You are a helpful assistant")
 //!         .build().await?;
-//!     
+//!
 //!     let result = agent.execute("Hello, how are you?").await?;
 //!     println!("Agent: {}", result.response);
 //!     Ok(())
@@ -42,7 +42,7 @@
 //! ```no_run
 //! use stood::{Agent, tool};
 //! use stood::llm::models::Bedrock;
-//! 
+//!
 //! #[tool]
 //! async fn search_web(query: String) -> Result<String, String> {
 //!     // Your search implementation here
@@ -56,12 +56,12 @@
 //!         .tool(search_web())
 //!         .with_builtin_tools()
 //!         .build().await?;
-//!     
+//!
 //!     // Single method for all tasks - automatically uses 5-phase agentic execution
 //!     let result = agent.execute(
 //!         "Research the latest developments in quantum computing"
 //!     ).await?;
-//!     
+//!
 //!     println!("Final result: {}", result.response);
 //!     println!("Tool calls made: {}", result.tools_called.len());
 //!     println!("Execution cycles: {}", result.execution.cycles);
@@ -75,28 +75,28 @@
 //!
 //! ```no_run
 //! use stood::agent::Agent;
-//! 
+//!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Sequential execution (default) - tools run one at a time
 //!     let mut sequential_agent = Agent::builder()
 //!         .max_parallel_tools(1)
 //!         .build().await?;
-//!     
+//!
 //!     // Parallel execution - up to 4 tools run concurrently
 //!     let mut parallel_agent = Agent::builder()
 //!         .max_parallel_tools(4)
 //!         .build().await?;
-//!     
+//!
 //!     // Auto-detect CPU count for optimal parallelism
 //!     let mut auto_agent = Agent::builder()
 //!         .max_parallel_tools_auto()
 //!         .build().await?;
-//!     
+//!
 //!     let result = parallel_agent.execute(
 //!         "Process these files, send emails, and generate reports simultaneously"
 //!     ).await?;
-//!     
+//!
 //!     println!("Completed {} tools in parallel", result.tools_called);
 //!     Ok(())
 //! }
@@ -130,34 +130,37 @@
 //! - [`EventLoop`] - Orchestrates agentic execution workflows
 
 // BedrockClient now in llm::providers::bedrock
-use crate::tools::{ToolRegistry, Tool};
+use crate::tools::{Tool, ToolMiddleware, ToolRegistry};
 use crate::types::Message;
 use crate::{Result, StoodError};
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 #[allow(unused_imports)] // Used in future features
 use uuid::Uuid;
 
 // LLM provider system imports
-use crate::llm::traits::{LlmProvider, LlmModel, ProviderType};
-use crate::llm::registry::PROVIDER_REGISTRY;
 use crate::llm::providers::retry::RetryConfig;
+use crate::llm::registry::PROVIDER_REGISTRY;
+use crate::llm::traits::{LlmModel, LlmProvider, ProviderType};
 
 use crate::telemetry::{StoodTracer, TelemetryConfig};
 
+pub mod callbacks;
+pub mod config;
 pub mod conversation;
+pub mod evaluation;
 pub mod event_loop;
 pub mod result;
-pub mod config;
-pub mod callbacks;
-pub mod evaluation;
 
-pub use conversation::ConversationManager;
-pub use event_loop::{EventLoop, EventLoopConfig, EventLoopResult};
-pub use result::{AgentResult, ExecutionDetails, TokenUsage, PerformanceMetrics};
+pub use callbacks::{
+    CallbackHandler, CallbackHandlerConfig, CompositeCallbackHandler, NullCallbackHandler,
+    PerformanceCallbackHandler, PrintingCallbackHandler, PrintingConfig,
+};
 pub use config::{ExecutionConfig, LogLevel};
+pub use conversation::ConversationManager;
 pub use evaluation::{EvaluationStrategy, PerspectiveConfig};
-pub use callbacks::{CallbackHandler, CallbackHandlerConfig, PrintingConfig, NullCallbackHandler, PrintingCallbackHandler, CompositeCallbackHandler, PerformanceCallbackHandler};
+pub use event_loop::{EventLoop, EventLoopConfig, EventLoopResult};
+pub use result::{AgentResult, ExecutionDetails, PerformanceMetrics, TokenUsage};
 
 #[cfg(test)]
 mod integration_tests;
@@ -187,7 +190,7 @@ mod llm_integration_test;
 ///     temperature: Some(0.1),  // More deterministic
 ///     max_tokens: Some(8192),  // Longer responses
 ///     system_prompt: Some(
-///         "You are a code analysis expert. Provide detailed, 
+///         "You are a code analysis expert. Provide detailed,
 ///          accurate technical explanations.".to_string()
 ///     ),
 ///     agent_id: None,
@@ -201,7 +204,7 @@ mod llm_integration_test;
 ///
 /// **Bedrock Provider:**
 /// - **Claude Haiku 3.5** - Fast, cost-effective for simple tasks
-/// - **Claude Sonnet 3.5** - Balanced performance for most applications  
+/// - **Claude Sonnet 3.5** - Balanced performance for most applications
 /// - **Claude Opus 3** - Maximum capability for complex reasoning
 /// - **Nova Pro/Lite/Micro** - Amazon's models for specific use cases
 ///
@@ -219,7 +222,7 @@ pub struct AgentConfig {
     pub system_prompt: Option<String>,
     pub agent_id: Option<String>,
     pub agent_name: Option<String>,
-    
+
     pub telemetry_config: Option<TelemetryConfig>,
     pub retry_config: Option<RetryConfig>,
 }
@@ -284,10 +287,10 @@ impl AgentContext {
 /// # use stood::agent::Agent;
 /// # async fn example(mut agent: Agent) {
 /// let summary = agent.get_performance_summary();
-/// 
+///
 /// println!("Messages exchanged: {}", summary.total_messages);
 /// println!("Using model: {:?}", summary.model);
-/// 
+///
 /// if summary.conversation_length > 50 {
 ///     println!("Consider conversation cleanup for performance");
 /// }
@@ -306,13 +309,13 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             provider: ProviderType::Bedrock,
-            model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0".to_string(),
+            model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),
             temperature: Some(0.7),
             max_tokens: Some(4096),
             system_prompt: None,
             agent_id: None,
             agent_name: None,
-            
+
             telemetry_config: None,
             retry_config: None,
         }
@@ -336,7 +339,7 @@ impl Default for AgentConfig {
 /// # Key Capabilities
 ///
 /// - **Unified Execution** - Single `execute()` method for all tasks (simple to complex)
-/// - **5-Phase Agentic System** - Reasoning → Tool Selection → Tool Execution → Reflection → Response Generation  
+/// - **5-Phase Agentic System** - Reasoning → Tool Selection → Tool Execution → Reflection → Response Generation
 /// - **Multi-Provider Support** - Bedrock, LM Studio, Anthropic, OpenAI providers
 /// - **Conversation Memory** - Maintains context across interactions and providers
 /// - **Tool Integration** - Parallel tool execution with compile-time validation
@@ -358,7 +361,7 @@ impl Default for AgentConfig {
 /// let result = bedrock_agent.execute("Explain quantum computing").await?;
 /// println!("Bedrock: {}", result.response);
 ///
-/// // Use LM Studio (local) 
+/// // Use LM Studio (local)
 /// let mut local_agent = Agent::builder()
 ///     .model(LMStudio::Gemma3_12B)
 ///     .build().await?;
@@ -377,12 +380,12 @@ impl Default for AgentConfig {
 ///     .model(Bedrock::ClaudeHaiku45)
 ///     .with_builtin_tools()
 ///     .build().await?;
-///     
+///
 /// // Single execute() method - automatically uses 5-phase agentic execution
 /// let result = agent.execute(
 ///     "Research and summarize the latest AI developments"
 /// ).await?;
-/// 
+///
 /// println!("Final response: {}", result.response);
 /// println!("Tools used: {}", result.tools_called.len());
 /// println!("Execution cycles: {}", result.execution.cycles);
@@ -406,7 +409,7 @@ pub struct Agent {
     conversation: ConversationManager,
     tool_registry: ToolRegistry,
     execution_config: ExecutionConfig, // Pre-configured execution settings
-    
+
     tracer: Option<StoodTracer>,
 }
 
@@ -429,7 +432,7 @@ impl Clone for Agent {
     fn clone(&self) -> Self {
         // Create a new model instance based on config
         let model = create_model_from_config(&self.config.provider, &self.config.model_id);
-        
+
         Self {
             agent_id: self.agent_id.clone(),
             agent_name: self.agent_name.clone(),
@@ -451,14 +454,28 @@ fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn 
         ProviderType::Bedrock => {
             match model_id {
                 // Claude 4.5 models (recommended)
-                "us.anthropic.claude-sonnet-4-5-20250929-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeSonnet45),
-                "us.anthropic.claude-haiku-4-5-20251001-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45),
-                "us.anthropic.claude-opus-4-5-20251101-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeOpus45),
+                "us.anthropic.claude-sonnet-4-5-20250929-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::ClaudeSonnet45)
+                }
+                "us.anthropic.claude-haiku-4-5-20251001-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::ClaudeHaiku45)
+                }
+                "us.anthropic.claude-opus-4-5-20251101-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::ClaudeOpus45)
+                }
                 // Legacy Claude models (deprecated but still supported)
-                "us.anthropic.claude-3-5-sonnet-20241022-v2:0" => Box::new(crate::llm::models::Bedrock::Claude35Sonnet),
-                "us.anthropic.claude-3-5-haiku-20241022-v1:0" => Box::new(crate::llm::models::Bedrock::Claude35Haiku),
-                "us.anthropic.claude-3-haiku-20240307-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeHaiku3),
-                "us.anthropic.claude-3-opus-20240229-v1:0" => Box::new(crate::llm::models::Bedrock::ClaudeOpus3),
+                "us.anthropic.claude-3-5-sonnet-20241022-v2:0" => {
+                    Box::new(crate::llm::models::Bedrock::Claude35Sonnet)
+                }
+                "us.anthropic.claude-3-5-haiku-20241022-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::Claude35Haiku)
+                }
+                "us.anthropic.claude-3-haiku-20240307-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::ClaudeHaiku3)
+                }
+                "us.anthropic.claude-3-opus-20240229-v1:0" => {
+                    Box::new(crate::llm::models::Bedrock::ClaudeOpus3)
+                }
                 // Nova models
                 "us.amazon.nova-lite-v1:0" => Box::new(crate::llm::models::Bedrock::NovaLite),
                 "us.amazon.nova-pro-v1:0" => Box::new(crate::llm::models::Bedrock::NovaPro),
@@ -489,8 +506,9 @@ impl Agent {
     async fn build_internal(
         provider: Arc<dyn LlmProvider>,
         model: Box<dyn LlmModel>,
-        config: AgentConfig, 
+        config: AgentConfig,
         tools: Vec<Box<dyn Tool>>,
+        middlewares: Vec<Arc<dyn ToolMiddleware>>,
         execution_config: ExecutionConfig,
         agent_id: Option<String>,
         agent_name: Option<String>,
@@ -503,17 +521,22 @@ impl Agent {
         // Initialize tool registry and register tools
         let tool_registry = ToolRegistry::new();
         for tool in tools {
-            tool_registry.register_tool(tool).await
-                .map_err(|e| StoodError::configuration_error(format!("Failed to register tool: {}", e)))?;
+            tool_registry.register_tool(tool).await.map_err(|e| {
+                StoodError::configuration_error(format!("Failed to register tool: {}", e))
+            })?;
+        }
+
+        // Register middleware
+        for middleware in middlewares {
+            tool_registry.add_middleware(middleware).await;
         }
 
         // Initialize smart telemetry with auto-detection
-        
+
         let tracer = {
             // Use provided config or auto-detect with proper log level
-            let mut tel_config = config.telemetry_config.clone()
-                .unwrap_or_else(|| crate::telemetry::TelemetryConfig::default());
-            
+            let mut tel_config = config.telemetry_config.clone().unwrap_or_default();
+
             // Apply execution_config log level to telemetry
             let telemetry_log_level = match execution_config.log_level {
                 crate::agent::config::LogLevel::Off => crate::telemetry::LogLevel::OFF,
@@ -521,18 +544,20 @@ impl Agent {
                 crate::agent::config::LogLevel::Debug => crate::telemetry::LogLevel::DEBUG,
                 crate::agent::config::LogLevel::Trace => crate::telemetry::LogLevel::TRACE,
             };
-            tel_config.log_level = telemetry_log_level;
+            tel_config.set_log_level(telemetry_log_level);
 
-            match StoodTracer::init(tel_config) {
+            // Use init_async to automatically create the CloudWatch log group
+            // This is required for spans to appear in the GenAI Dashboard
+            match StoodTracer::init_async(tel_config).await {
                 Ok(tracer_opt) => {
                     // Initialize tracing subscriber with OpenTelemetry layer for automatic context propagation
                     if tracer_opt.is_some() {
-                        if let Err(e) = crate::telemetry::otel::StoodTracer::init_tracing_subscriber() {
+                        if let Err(e) = crate::telemetry::StoodTracer::init_tracing_subscriber() {
                             tracing::warn!("Failed to initialize tracing subscriber: {}", e);
                         }
                     }
                     tracer_opt
-                },
+                }
                 Err(e) => {
                     tracing::warn!("Failed to initialize telemetry: {}", e);
                     None
@@ -540,9 +565,10 @@ impl Agent {
             }
         };
 
-
         Ok(Self {
-            agent_id: agent_id.or_else(|| config.agent_id.clone()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            agent_id: agent_id
+                .or_else(|| config.agent_id.clone())
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             agent_name: agent_name.or_else(|| config.agent_name.clone()),
             provider,
             model,
@@ -550,7 +576,7 @@ impl Agent {
             conversation,
             tool_registry,
             execution_config,
-            
+
             tracer,
         })
     }
@@ -567,6 +593,11 @@ impl Agent {
         self.agent_name.as_deref()
     }
 
+    /// Get the telemetry configuration for this agent
+    pub fn telemetry_config(&self) -> Option<&TelemetryConfig> {
+        self.config.telemetry_config.as_ref()
+    }
+
     /// Get the cancellation token if cancellation was enabled during building
     ///
     /// Returns the cancellation token that can be used to cancel agent execution
@@ -579,12 +610,12 @@ impl Agent {
     /// # Examples
     /// ```no_run
     /// use stood::agent::Agent;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
     ///     .with_cancellation()
     ///     .build().await?;
-    ///     
+    ///
     /// // Get cancellation token
     /// if let Some(cancel_token) = agent.cancellation_token() {
     ///     // Use in ESC handler, timeout, etc.
@@ -609,9 +640,9 @@ impl Agent {
     pub fn provider(&self) -> &Arc<dyn LlmProvider> {
         &self.provider
     }
-    
-    pub fn model(&self) -> &Box<dyn LlmModel> {
-        &self.model
+
+    pub fn model(&self) -> &dyn LlmModel {
+        self.model.as_ref()
     }
 
     pub fn conversation(&self) -> &ConversationManager {
@@ -677,11 +708,11 @@ impl Agent {
     /// # use stood::agent::Agent;
     /// # async fn example(mut agent: Agent) -> Result<(), Box<dyn std::error::Error>> {
     /// let result = agent.execute("Analyze this complex data").await?;
-    /// 
+    ///
     /// println!("Response: {}", result.response);
     /// println!("Used {} tools in {} cycles", result.tools_called.len(), result.execution.cycles);
     /// println!("Execution took {:?}", result.duration);
-    /// 
+    ///
     /// if result.used_tools {
     ///     println!("Tools used: {}", result.tools_called.join(", "));
     /// }
@@ -696,7 +727,7 @@ impl Agent {
     /// let mut agent = Agent::builder()
     ///     .with_printing_callbacks()  // Callbacks configured here
     ///     .build().await?;
-    /// 
+    ///
     /// let result = agent.execute("Complex task").await?; // Uses configured callbacks
     /// # Ok(())
     /// # }
@@ -736,23 +767,25 @@ impl Agent {
     pub async fn execute<S: Into<String>>(&mut self, prompt: S) -> Result<AgentResult> {
         let prompt = prompt.into();
         let start_time = std::time::Instant::now();
-        
+
         // Use pre-configured ExecutionConfig from Agent construction
         let config = &self.execution_config;
-        
+
         // Create EventLoop with pre-configured settings - EventLoop OWNS a copy of the Agent
         // Create a new model instance based on the configuration
         let model = create_model_from_config(&self.config.provider, &self.config.model_id);
-        
+
         let agent_copy = Agent::build_internal(
             Arc::clone(&self.provider),
             model,
-            self.config.clone(), 
+            self.config.clone(),
             vec![], // Tools are already in the main agent's registry
+            vec![], // Middleware is already in the main agent's registry
             config.clone(),
             Some(self.agent_id.clone()),
-            self.agent_name.clone()
-        ).await?;
+            self.agent_name.clone(),
+        )
+        .await?;
 
         // Copy current conversation state to the EventLoop agent
         let mut event_loop_agent = agent_copy;
@@ -784,39 +817,41 @@ impl Agent {
             CallbackHandlerConfig::None => None,
             other_config => Some(Self::create_callback_handler(other_config)?),
         };
-        
+
         // EventLoop orchestrates everything using pre-configured settings with callbacks
         // Apply ExecutionConfig.streaming to EventLoopConfig.enable_streaming
         let mut event_loop_config = config.event_loop.clone();
         event_loop_config.enable_streaming = config.streaming;
-        
-        tracing::info!("🔧 Agent streaming config: {}, EventLoop streaming config: {}", 
-            config.streaming, event_loop_config.enable_streaming);
-        
+
+        tracing::info!(
+            "🔧 Agent streaming config: {}, EventLoop streaming config: {}",
+            config.streaming,
+            event_loop_config.enable_streaming
+        );
+
         // Enable telemetry in EventLoop if configured at agent level
-        
+
         {
             event_loop_config.enable_telemetry = self.config.telemetry_config.is_some();
         }
-        
+
         let mut event_loop = event_loop::EventLoop::new_with_callbacks(
-            event_loop_agent, 
-            self.tool_registry.clone(), 
+            event_loop_agent,
+            self.tool_registry.clone(),
             event_loop_config,
-            callback_handler
+            callback_handler,
         )?;
-        
+
         let event_loop_result = event_loop.execute(prompt).await?;
-        
+
         // Convert to unified result type
         let agent_result = AgentResult::from(event_loop_result, start_time.elapsed());
-        
+
         // Sync conversation state from EventLoop result
         self.sync_conversation_from_eventloop(event_loop.agent());
-        
+
         Ok(agent_result)
     }
-
 
     /// Check if the agent has access to tools for agentic execution
     pub fn supports_agentic_execution(&self) -> bool {
@@ -856,18 +891,23 @@ impl Agent {
                     let handler = Self::create_callback_handler(handler_config)?;
                     handler_arcs.push(handler);
                 }
-                Ok(Arc::new(CompositeCallbackHandler::with_handlers(handler_arcs)))
+                Ok(Arc::new(CompositeCallbackHandler::with_handlers(
+                    handler_arcs,
+                )))
             }
             CallbackHandlerConfig::Performance(level) => {
                 Ok(Arc::new(PerformanceCallbackHandler::new(*level)))
             }
-            CallbackHandlerConfig::Batching { inner, batch_config } => {
+            CallbackHandlerConfig::Batching {
+                inner,
+                batch_config,
+            } => {
                 let inner_handler = Self::create_callback_handler(inner)?;
                 Ok(Arc::new(
                     crate::agent::callbacks::BatchingCallbackHandler::new(
                         inner_handler,
                         batch_config.clone(),
-                    )
+                    ),
                 ))
             }
         }
@@ -905,7 +945,7 @@ impl Agent {
 ///     .temperature(0.1)                   // More deterministic
 ///     .max_tokens(8192)                   // Longer code responses
 ///     .system_prompt(
-///         "You are an expert software engineer. Write clean, 
+///         "You are an expert software engineer. Write clean,
 ///          well-documented code with comprehensive error handling."
 ///     )
 ///     .build().await?;
@@ -928,6 +968,7 @@ pub struct AgentBuilder {
     agent_id: Option<String>,
     agent_name: Option<String>,
     aws_credentials: Option<AwsCredentials>,
+    middlewares: Vec<Arc<dyn ToolMiddleware>>,
 }
 
 /// AWS credentials for programmatic authentication
@@ -949,16 +990,17 @@ impl AgentBuilder {
             agent_id: None,
             agent_name: None,
             aws_credentials: None,
+            middlewares: Vec::new(),
         }
     }
 
     /// Set model using LLM provider system
-    /// 
+    ///
     /// # Examples
     /// ```no_run
     /// use stood::agent::Agent;
     /// use stood::llm::models::{Bedrock, LMStudio};
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Use Bedrock (costs money)
     /// let agent = Agent::builder()
@@ -978,12 +1020,11 @@ impl AgentBuilder {
         // Store the model info in the config
         self.config.provider = model.provider();
         self.config.model_id = model.model_id().to_string();
-        
+
         // Store the model instance
         self.model = Some(Box::new(model));
         self
     }
-
 
     pub fn temperature(mut self, temperature: f32) -> Self {
         if !(0.0..=1.0).contains(&temperature) {
@@ -1015,18 +1056,18 @@ impl AgentBuilder {
         self.agent_id = Some(id.into());
         self
     }
-    
+
     /// Configure retry behavior for LM Studio provider
-    /// 
+    ///
     /// This setting applies to LM Studio providers to handle model loading delays.
     /// Other providers use their own retry strategies.
-    /// 
+    ///
     /// # Examples
     /// ```no_run
     /// use stood::agent::Agent;
     /// use stood::llm::models::LMStudio;
     /// use stood::llm::providers::retry::RetryConfig;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
     ///     .model(LMStudio::TessaRust7B)
@@ -1040,19 +1081,19 @@ impl AgentBuilder {
         self.config.retry_config = Some(config);
         self
     }
-    
+
     /// Enable conservative retry behavior (2 attempts max)
     pub fn with_conservative_retry(mut self) -> Self {
         self.config.retry_config = Some(RetryConfig::lm_studio_conservative());
         self
     }
-    
+
     /// Enable aggressive retry behavior (5 attempts max)
     pub fn with_aggressive_retry(mut self) -> Self {
         self.config.retry_config = Some(RetryConfig::lm_studio_aggressive());
         self
     }
-    
+
     /// Disable retry behavior entirely
     pub fn without_retry(mut self) -> Self {
         self.config.retry_config = Some(RetryConfig::disabled());
@@ -1089,24 +1130,74 @@ impl AgentBuilder {
         self
     }
 
+    /// Add tool middleware to the agent.
+    ///
+    /// Middleware intercepts tool execution, allowing you to:
+    /// - Modify tool parameters before execution
+    /// - Abort or skip tool calls
+    /// - Modify or augment tool results
+    /// - Inject additional context after tool execution
+    ///
+    /// Middleware is executed in registration order for `before_tool`
+    /// and reverse order for `after_tool`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// use stood::tools::{ToolMiddleware, ToolMiddlewareAction, AfterToolAction, ToolContext, ToolResult};
+    /// use async_trait::async_trait;
+    /// use serde_json::Value;
+    /// use std::sync::Arc;
+    ///
+    /// #[derive(Debug)]
+    /// struct LoggingMiddleware;
+    ///
+    /// #[async_trait]
+    /// impl ToolMiddleware for LoggingMiddleware {
+    ///     async fn before_tool(&self, tool_name: &str, params: &Value, _ctx: &ToolContext) -> ToolMiddlewareAction {
+    ///         println!("Executing tool: {}", tool_name);
+    ///         ToolMiddlewareAction::Continue
+    ///     }
+    ///
+    ///     async fn after_tool(&self, tool_name: &str, result: &ToolResult, _ctx: &ToolContext) -> AfterToolAction {
+    ///         println!("Tool {} completed", tool_name);
+    ///         AfterToolAction::PassThrough
+    ///     }
+    /// }
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let agent = Agent::builder()
+    ///         .with_middleware(Arc::new(LoggingMiddleware))
+    ///         .build()
+    ///         .await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn with_middleware(mut self, middleware: Arc<dyn ToolMiddleware>) -> Self {
+        self.middlewares.push(middleware);
+        self
+    }
+
     /// Add a think tool with custom prompt for structured problem-solving
-    /// 
+    ///
     /// The think tool provides structured thinking guidance based on Anthropic's research.
     /// It helps the model work through complex problems step by step.
-    /// 
+    ///
     /// # Arguments
     /// * `prompt` - Custom thinking prompt for domain-specific reasoning
-    /// 
+    ///
     /// # Examples
     /// ```rust
     /// use stood::agent::Agent;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Use custom prompt for legal analysis
     /// let agent = Agent::builder()
     ///     .with_think_tool("Think through this legal case step by step, considering precedent and applicable law.")
     ///     .build().await?;
-    /// 
+    ///
     /// // Use custom prompt for software architecture
     /// let agent = Agent::builder()
     ///     .with_think_tool("Analyze this software architecture problem considering scalability, maintainability, and performance.")
@@ -1115,26 +1206,27 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub fn with_think_tool<S: Into<String>>(mut self, custom_prompt: S) -> Self {
-        let think_tool = Box::new(crate::tools::builtin::ThinkTool::new(custom_prompt.into())) as Box<dyn Tool>;
+        let think_tool =
+            Box::new(crate::tools::builtin::ThinkTool::new(custom_prompt.into())) as Box<dyn Tool>;
         self.tools.push(think_tool);
         self
     }
 
     /// Add tools from an MCP client (matches Python's simple approach)
-    /// 
+    ///
     /// This method automatically connects to the MCP server, lists available tools,
     /// and creates tool adapters with the specified namespace prefix.
-    /// 
+    ///
     /// # Arguments
     /// * `mcp_client` - An MCPClient instance configured with transport
     /// * `namespace` - Optional namespace prefix for tool names (e.g., "mcp_")
-    /// 
+    ///
     /// # Examples
     /// ```rust
     /// use stood::agent::Agent;
     /// use stood::mcp::{MCPClient, MCPClientConfig};
     /// use stood::mcp::transport::{TransportFactory, StdioConfig};
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Create MCP client
     /// let config = StdioConfig {
@@ -1147,7 +1239,7 @@ impl AgentBuilder {
     /// };
     /// let transport = TransportFactory::stdio(config);
     /// let mut mcp_client = MCPClient::new(MCPClientConfig::default(), transport);
-    /// 
+    ///
     /// // Connect and create agent with MCP tools
     /// mcp_client.connect().await?;
     /// let agent = Agent::builder()
@@ -1157,65 +1249,66 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub async fn with_mcp_client(
-        mut self, 
-        mcp_client: crate::mcp::client::MCPClient, 
-        namespace: Option<String>
+        mut self,
+        mcp_client: crate::mcp::client::MCPClient,
+        namespace: Option<String>,
     ) -> Result<Self> {
         use crate::tools::mcp_adapter::MCPAgentTool;
         use std::sync::Arc;
         use tokio::sync::RwLock;
-        
+
         // Ensure client is connected
-        if let Err(_) = mcp_client.session_info().await {
+        if mcp_client.session_info().await.is_err() {
             return Err(crate::StoodError::configuration_error(
                 "MCP client must be connected before adding to agent. Call mcp_client.connect().await first."
             ));
         }
-        
+
         // List tools from the server
-        let tools = mcp_client.list_tools().await
-            .map_err(|e| crate::StoodError::configuration_error(format!("Failed to list MCP tools: {}", e)))?;
-        
+        let tools = mcp_client.list_tools().await.map_err(|e| {
+            crate::StoodError::configuration_error(format!("Failed to list MCP tools: {}", e))
+        })?;
+
         // Create tool adapters
         let mcp_client_arc = Arc::new(RwLock::new(mcp_client));
-        
+
         for tool in tools {
             let mcp_tool = MCPAgentTool::new(tool, mcp_client_arc.clone(), namespace.clone());
             self.tools.push(Box::new(mcp_tool));
         }
-        
+
         Ok(self)
     }
 
     /// Add tools from multiple MCP clients (matches Python's multi-client approach)
-    /// 
+    ///
     /// This method allows connecting to multiple MCP servers with different namespace
     /// prefixes to avoid tool name conflicts.
-    /// 
-    /// # Arguments  
+    ///
+    /// # Arguments
     /// * `mcp_clients` - Vector of (MCPClient, namespace) pairs
-    /// 
+    ///
     /// # Examples
     /// ```rust
     /// use stood::agent::Agent;
     /// use stood::mcp::{MCPClient, MCPClientConfig};
     /// use stood::mcp::transport::{TransportFactory, StdioConfig, WebSocketConfig};
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Create multiple MCP clients
     /// let stdio_config = StdioConfig { /* ... */ };
-    /// let mut stdio_client = MCPClient::new(MCPClientConfig::default(), 
+    /// let mut stdio_client = MCPClient::new(MCPClientConfig::default(),
     ///     TransportFactory::stdio(stdio_config));
     /// stdio_client.connect().await?;
-    /// 
-    /// let ws_config = WebSocketConfig { 
+    ///
+    /// let ws_config = WebSocketConfig {
     ///     url: "ws://localhost:8080/mcp".to_string(),
-    ///     /* ... */ 
+    ///     /* ... */
     /// };
     /// let mut ws_client = MCPClient::new(MCPClientConfig::default(),
     ///     TransportFactory::websocket(ws_config));
     /// ws_client.connect().await?;
-    /// 
+    ///
     /// // Create agent with tools from both servers
     /// let agent = Agent::builder()
     ///     .with_mcp_clients(vec![
@@ -1228,43 +1321,42 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub async fn with_mcp_clients(
-        mut self, 
-        mcp_clients: Vec<(crate::mcp::client::MCPClient, Option<String>)>
+        mut self,
+        mcp_clients: Vec<(crate::mcp::client::MCPClient, Option<String>)>,
     ) -> Result<Self> {
         use crate::tools::mcp_adapter::MCPAgentTool;
         use std::sync::Arc;
         use tokio::sync::RwLock;
-        
+
         for (mcp_client, namespace) in mcp_clients {
             // Ensure client is connected
-            if let Err(_) = mcp_client.session_info().await {
+            if mcp_client.session_info().await.is_err() {
                 return Err(crate::StoodError::configuration_error(
                     "All MCP clients must be connected before adding to agent. Call mcp_client.connect().await first."
                 ));
             }
-            
+
             // List tools from the server
-            let tools = mcp_client.list_tools().await
-                .map_err(|e| crate::StoodError::configuration_error(format!("Failed to list MCP tools: {}", e)))?;
-            
+            let tools = mcp_client.list_tools().await.map_err(|e| {
+                crate::StoodError::configuration_error(format!("Failed to list MCP tools: {}", e))
+            })?;
+
             // Create tool adapters
             let mcp_client_arc = Arc::new(RwLock::new(mcp_client));
-            
+
             for tool in tools {
                 let mcp_tool = MCPAgentTool::new(tool, mcp_client_arc.clone(), namespace.clone());
                 self.tools.push(Box::new(mcp_tool));
             }
         }
-        
+
         Ok(self)
     }
 
-
-    
     /// Enable telemetry with explicit configuration
-    /// 
+    ///
     /// Telemetry is **disabled by default**. Use this method to enable it with custom settings.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// # use stood::agent::Agent;
@@ -1273,7 +1365,7 @@ impl AgentBuilder {
     /// let config = TelemetryConfig::default()
     ///     .with_otlp_endpoint("http://localhost:4318")
     ///     .enable();
-    ///     
+    ///
     /// let agent = Agent::builder()
     ///     .with_telemetry(config)
     ///     .build().await?;
@@ -1285,23 +1377,22 @@ impl AgentBuilder {
         self
     }
 
-    
     /// Enable telemetry with environment-based configuration
-    /// 
+    ///
     /// This enables telemetry with smart auto-detection of OTLP endpoints and reads configuration
     /// from environment variables. **Telemetry is disabled by default** - this method explicitly enables it.
-    /// 
+    ///
     /// Environment variables:
-    /// - `OTEL_ENABLED=false` - Disable telemetry entirely  
+    /// - `OTEL_ENABLED=false` - Disable telemetry entirely
     /// - `OTEL_EXPORTER_OTLP_ENDPOINT` - Custom OTLP endpoint
     /// - `OTEL_SERVICE_NAME` - Service name for traces
-    /// 
+    ///
     /// # Example
     /// ```bash
     /// export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
     /// export OTEL_SERVICE_NAME=my-stood-agent
     /// ```
-    /// 
+    ///
     /// ```rust
     /// # use stood::agent::Agent;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -1320,13 +1411,12 @@ impl AgentBuilder {
             crate::agent::config::LogLevel::Debug => crate::telemetry::LogLevel::DEBUG,
             crate::agent::config::LogLevel::Trace => crate::telemetry::LogLevel::TRACE,
         };
-        telemetry_config.log_level = telemetry_log_level;
+        telemetry_config.set_log_level(telemetry_log_level);
         self.config.telemetry_config = Some(telemetry_config);
         self
     }
 
     /// Enable comprehensive metrics collection with smart telemetry auto-detection
-    
     pub fn with_metrics(mut self) -> Self {
         let mut telemetry_config = TelemetryConfig::from_env();
         // If log level is already set in execution config, apply it to telemetry
@@ -1336,13 +1426,12 @@ impl AgentBuilder {
             crate::agent::config::LogLevel::Debug => crate::telemetry::LogLevel::DEBUG,
             crate::agent::config::LogLevel::Trace => crate::telemetry::LogLevel::TRACE,
         };
-        telemetry_config.log_level = telemetry_log_level;
+        telemetry_config.set_log_level(telemetry_log_level);
         self.config.telemetry_config = Some(telemetry_config);
         self
     }
 
     /// Enable metrics collection with custom telemetry configuration
-    
     pub fn with_metrics_config(mut self, telemetry_config: TelemetryConfig) -> Self {
         self.config.telemetry_config = Some(telemetry_config);
         self
@@ -1350,35 +1439,37 @@ impl AgentBuilder {
 
     /// Enable printing callbacks with default settings (matches Python's PrintingCallbackHandler)
     pub fn with_printing_callbacks(mut self) -> Self {
-        self.execution_config.callback_handler = CallbackHandlerConfig::Printing(PrintingConfig::default());
+        self.execution_config.callback_handler =
+            CallbackHandlerConfig::Printing(PrintingConfig::default());
         self
     }
-    
+
     /// Enable printing callbacks with custom settings
     pub fn with_printing_callbacks_config(mut self, config: PrintingConfig) -> Self {
         self.execution_config.callback_handler = CallbackHandlerConfig::Printing(config);
         self
     }
-    
+
     /// Set custom callback handler
     pub fn with_callback_handler<H: CallbackHandler + 'static>(mut self, handler: H) -> Self {
         use std::sync::Arc;
         self.execution_config.callback_handler = CallbackHandlerConfig::Custom(Arc::new(handler));
         self
     }
-    
+
     /// Enable verbose printing (development mode)
     pub fn with_verbose_callbacks(mut self) -> Self {
-        self.execution_config.callback_handler = CallbackHandlerConfig::Printing(PrintingConfig::verbose());
+        self.execution_config.callback_handler =
+            CallbackHandlerConfig::Printing(PrintingConfig::verbose());
         self
     }
-    
+
     /// Enable performance logging callbacks
     pub fn with_performance_callbacks(mut self, level: tracing::Level) -> Self {
         self.execution_config.callback_handler = CallbackHandlerConfig::Performance(level);
         self
     }
-    
+
     /// Enable batching wrapper around printing callbacks for better performance
     pub fn with_batched_printing_callbacks(mut self) -> Self {
         self.execution_config.callback_handler = CallbackHandlerConfig::Batching {
@@ -1387,10 +1478,10 @@ impl AgentBuilder {
         };
         self
     }
-    
+
     /// Enable batching wrapper with custom configuration
     pub fn with_batched_callbacks(
-        mut self, 
+        mut self,
         inner_config: CallbackHandlerConfig,
         batch_config: crate::agent::callbacks::BatchConfig,
     ) -> Self {
@@ -1400,37 +1491,37 @@ impl AgentBuilder {
         };
         self
     }
-    
+
     /// Add multiple callback handlers (matches Python's CompositeCallbackHandler)
     pub fn with_composite_callbacks(mut self, configs: Vec<CallbackHandlerConfig>) -> Self {
         self.execution_config.callback_handler = CallbackHandlerConfig::Composite(configs);
         self
     }
-    
+
     /// Enable streaming by default
     pub fn with_streaming(mut self, enabled: bool) -> Self {
         self.execution_config.streaming = enabled;
         self
     }
-    
+
     /// Set default timeout
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.execution_config.timeout = Some(timeout);
         self
     }
-    
+
     /// Configure EventLoop settings
     pub fn with_event_loop_config(mut self, config: EventLoopConfig) -> Self {
         self.execution_config.event_loop = config;
         self
     }
-    
+
     /// Configure execution settings directly
     pub fn with_execution_config(mut self, config: ExecutionConfig) -> Self {
         self.execution_config = config;
         self
     }
-    
+
     /// Set the log level for debug output from the agent
     pub fn with_log_level(mut self, level: LogLevel) -> Self {
         self.execution_config.log_level = level;
@@ -1464,15 +1555,15 @@ impl AgentBuilder {
                 crate::tools::executor::ExecutorConfig::sequential()
             }
         };
-        
+
         // Enable parallel execution strategy when max_parallel > 1
         if max_parallel > 1 {
             tool_config.execution_strategy = crate::tools::executor::ExecutionStrategy::Parallel;
         }
-        
+
         // Update the EventLoopConfig with the new tool configuration
         self.execution_config.event_loop.tool_config = tool_config;
-        
+
         self
     }
 
@@ -1505,7 +1596,7 @@ impl AgentBuilder {
     /// # Examples
     /// ```rust
     /// use stood::agent::Agent;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
     ///     .with_task_evaluation("Have I fully addressed all aspects of the user's request? Is there anything important missing?")
@@ -1514,7 +1605,8 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub fn with_task_evaluation(mut self, prompt: impl Into<String>) -> Self {
-        self.execution_config.event_loop.evaluation_strategy = EvaluationStrategy::task_evaluation(prompt);
+        self.execution_config.event_loop.evaluation_strategy =
+            EvaluationStrategy::task_evaluation(prompt);
         self
     }
 
@@ -1529,7 +1621,7 @@ impl AgentBuilder {
     /// # Examples
     /// ```rust
     /// use stood::agent::{Agent, PerspectiveConfig};
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let perspectives = vec![
     ///     PerspectiveConfig {
@@ -1543,15 +1635,19 @@ impl AgentBuilder {
     ///         weight: 0.4,
     ///     },
     /// ];
-    /// 
+    ///
     /// let agent = Agent::builder()
     ///     .with_multi_perspective_evaluation(perspectives)
     ///     .build().await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_multi_perspective_evaluation(mut self, perspectives: Vec<PerspectiveConfig>) -> Self {
-        self.execution_config.event_loop.evaluation_strategy = EvaluationStrategy::multi_perspective(perspectives);
+    pub fn with_multi_perspective_evaluation(
+        mut self,
+        perspectives: Vec<PerspectiveConfig>,
+    ) -> Self {
+        self.execution_config.event_loop.evaluation_strategy =
+            EvaluationStrategy::multi_perspective(perspectives);
         self
     }
 
@@ -1568,13 +1664,13 @@ impl AgentBuilder {
     /// ```rust
     /// use stood::agent::Agent;
     /// use stood::llm::models::Bedrock;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let evaluator = Agent::builder()
     ///     .model(Bedrock::ClaudeHaiku45)
     ///     .system_prompt("You are a critical evaluator. Assess task completion quality.")
     ///     .build().await?;
-    /// 
+    ///
     /// let main_agent = Agent::builder()
     ///     .with_agent_based_evaluation(evaluator)
     ///     .build().await?;
@@ -1582,11 +1678,13 @@ impl AgentBuilder {
     /// # }
     /// ```
     pub fn with_agent_based_evaluation(mut self, evaluator_agent: Agent) -> Self {
-        let evaluation_prompt = "Please evaluate if the previous agent's work fully completes the user's request.".to_string();
-        self.execution_config.event_loop.evaluation_strategy = EvaluationStrategy::agent_based(evaluator_agent, evaluation_prompt);
+        let evaluation_prompt =
+            "Please evaluate if the previous agent's work fully completes the user's request."
+                .to_string();
+        self.execution_config.event_loop.evaluation_strategy =
+            EvaluationStrategy::agent_based(evaluator_agent, evaluation_prompt);
         self
     }
-
 
     /// Set a high limit for tool iterations to enable more autonomous behavior
     ///
@@ -1600,7 +1698,7 @@ impl AgentBuilder {
     /// # Examples
     /// ```rust
     /// use stood::agent::Agent;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
     ///     .with_self_reflection_evaluation("Have I completed the task?")
@@ -1623,15 +1721,15 @@ impl AgentBuilder {
     /// # Examples
     /// ```no_run
     /// use stood::agent::Agent;
-    /// 
+    ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let agent = Agent::builder()
     ///     .with_cancellation()
     ///     .build().await?;
-    ///     
+    ///
     /// // Get the cancellation token from the agent
     /// let cancel_token = agent.cancellation_token().unwrap();
-    ///     
+    ///
     /// // In another task, cancel execution
     /// tokio::spawn(async move {
     ///     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -1716,7 +1814,10 @@ impl AgentBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    #[deprecated(since = "1.0.0", note = "Use `with_credentials` instead, which now includes region as a required parameter")]
+    #[deprecated(
+        since = "1.0.0",
+        note = "Use `with_credentials` instead, which now includes region as a required parameter"
+    )]
     pub fn with_credentials_and_region(
         mut self,
         access_key: String,
@@ -1773,7 +1874,7 @@ impl AgentBuilder {
     /// # use stood::types::ModelReference;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = BedrockClient::new().await?;
-    /// 
+    ///
     /// let agent = Agent::builder()
     ///     .client(client)
     ///     .model(ModelReference::claude_sonnet_35())
@@ -1795,85 +1896,103 @@ impl AgentBuilder {
             // Default to Claude Haiku 4.5
             Box::new(crate::llm::models::Bedrock::ClaudeHaiku45)
         });
-        
+
         // Update config with model info if not already set
         if self.config.model_id.is_empty() {
             self.config.provider = model.provider();
             self.config.model_id = model.model_id().to_string();
         }
-        
+
         // CRITICAL FIX: Auto-configure provider registry with timeout and error handling
         let provider_type = model.provider();
-        
+
         // Configure custom credentials for Bedrock if provided
         if provider_type == ProviderType::Bedrock && self.aws_credentials.is_some() {
-            use crate::llm::registry::{ProviderConfig, BedrockCredentials};
-            
+            use crate::llm::registry::{BedrockCredentials, ProviderConfig};
+
             let aws_creds = self.aws_credentials.as_ref().unwrap();
             let bedrock_creds = BedrockCredentials {
                 access_key: aws_creds.access_key.clone(),
                 secret_key: aws_creds.secret_key.clone(),
                 session_token: aws_creds.session_token.clone(),
             };
-            
+
             let bedrock_config = ProviderConfig::Bedrock {
                 region: aws_creds.region.clone(),
                 credentials: Some(bedrock_creds),
             };
-            
-            PROVIDER_REGISTRY.add_config(ProviderType::Bedrock, bedrock_config).await;
+
+            PROVIDER_REGISTRY
+                .add_config(ProviderType::Bedrock, bedrock_config)
+                .await;
         }
-        
+
         // For LM Studio providers, configure retry settings if specified
         if provider_type == ProviderType::LmStudio && self.config.retry_config.is_some() {
             use crate::llm::registry::ProviderConfig;
-            
+
             // Get base URL from existing config or use default
             let base_url = std::env::var("LM_STUDIO_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:1234".to_string());
-            
+
             // Configure LM Studio with custom retry settings
             let lm_studio_config = ProviderConfig::LMStudio {
                 base_url,
                 retry_config: self.config.retry_config.clone(),
             };
-            
-            PROVIDER_REGISTRY.add_config(ProviderType::LmStudio, lm_studio_config).await;
+
+            PROVIDER_REGISTRY
+                .add_config(ProviderType::LmStudio, lm_studio_config)
+                .await;
         }
-        
+
         // Check if provider is configured, with timeout
         let is_configured = tokio::time::timeout(
-            std::time::Duration::from_secs(5), 
-            crate::llm::registry::PROVIDER_REGISTRY.is_configured(provider_type)
-        ).await.unwrap_or(false);
-        
+            std::time::Duration::from_secs(5),
+            crate::llm::registry::PROVIDER_REGISTRY.is_configured(provider_type),
+        )
+        .await
+        .unwrap_or(false);
+
         if !is_configured {
             // Auto-configure with timeout
             tokio::time::timeout(
                 std::time::Duration::from_secs(10),
-                crate::llm::registry::ProviderRegistry::configure()
-            ).await
+                crate::llm::registry::ProviderRegistry::configure(),
+            )
+            .await
             .map_err(|_| crate::StoodError::ConfigurationError {
-                message: "Provider registry configuration timed out".to_string()
+                message: "Provider registry configuration timed out".to_string(),
             })?
             .map_err(|e| crate::StoodError::ConfigurationError {
-                message: format!("Failed to auto-configure provider registry: {}", e)
+                message: format!("Failed to auto-configure provider registry: {}", e),
             })?;
         }
-        
+
         // Get provider from registry with timeout
         let provider = tokio::time::timeout(
             std::time::Duration::from_secs(10),
-            PROVIDER_REGISTRY.get_provider(provider_type)
-        ).await
+            PROVIDER_REGISTRY.get_provider(provider_type),
+        )
+        .await
         .map_err(|_| crate::StoodError::ConfigurationError {
-            message: "Provider creation timed out".to_string()
+            message: "Provider creation timed out".to_string(),
         })?
-        .map_err(|e| crate::StoodError::ConfigurationError { 
-            message: format!("Failed to get provider: {}", e) 
+        .map_err(|e| crate::StoodError::ConfigurationError {
+            message: format!("Failed to get provider: {}", e),
         })?;
 
-        Agent::build_internal(provider, model, self.config, self.tools, self.execution_config, self.agent_id, self.agent_name).await
+        Agent::build_internal(
+            provider,
+            model,
+            self.config,
+            self.tools,
+            self.middlewares,
+            self.execution_config,
+            self.agent_id,
+            self.agent_name,
+        )
+        .await
     }
 }
 
@@ -1891,8 +2010,14 @@ mod tests {
     async fn test_agent_builder_default() {
         let agent = Agent::builder().build().await.unwrap();
 
-        assert_eq!(agent.config().provider, crate::llm::traits::ProviderType::Bedrock);
-        assert_eq!(agent.config().model_id, "us.anthropic.claude-3-5-haiku-20241022-v1:0");
+        assert_eq!(
+            agent.config().provider,
+            crate::llm::traits::ProviderType::Bedrock
+        );
+        assert_eq!(
+            agent.config().model_id,
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        );
         assert_eq!(agent.config().temperature, Some(0.7));
         assert_eq!(agent.config().max_tokens, Some(4096));
         assert!(agent.config().system_prompt.is_none());
@@ -1907,10 +2032,17 @@ mod tests {
             .max_tokens(2048)
             .system_prompt("You are a helpful assistant")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
-        assert_eq!(agent.config().provider, crate::llm::traits::ProviderType::Bedrock);
-        assert_eq!(agent.config().model_id, "us.anthropic.claude-haiku-4-5-20251001-v1:0");
+        assert_eq!(
+            agent.config().provider,
+            crate::llm::traits::ProviderType::Bedrock
+        );
+        assert_eq!(
+            agent.config().model_id,
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        );
         assert_eq!(agent.config().temperature, Some(0.5));
         assert_eq!(agent.config().max_tokens, Some(2048));
         assert_eq!(
@@ -1921,10 +2053,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_builder_with_tools() {
-        let agent = Agent::builder()
-            .with_builtin_tools()
-            .build()
-            .await.unwrap();
+        let agent = Agent::builder().with_builtin_tools().build().await.unwrap();
 
         // Should have builtin tools
         assert!(agent.tool_registry.has_tool("calculator").await);
@@ -1962,13 +2091,13 @@ mod tests {
         assert!(agent.conversation().is_empty());
     }
 
-
     #[tokio::test]
     async fn test_agent_system_prompt() {
         let agent = Agent::builder()
             .system_prompt("You are a helpful assistant")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // System prompt should be set in conversation manager
         assert_eq!(
@@ -1982,7 +2111,8 @@ mod tests {
         let mut agent = Agent::builder()
             .system_prompt("You are helpful")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Add messages through agent methods
         agent.add_user_message("What is 2+2?");
@@ -2006,7 +2136,8 @@ mod tests {
         let mut agent = Agent::builder()
             .system_prompt("You are a helpful assistant. Keep responses brief.")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Test chat functionality - handle potential API errors gracefully
         match agent.execute("What is 2+2?").await {
@@ -2044,7 +2175,8 @@ mod tests {
         let mut agent = Agent::builder()
             .system_prompt("You are helpful. Keep responses very brief.")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Test multi-turn capability with error handling
         match agent.execute("Hello").await {
@@ -2080,12 +2212,13 @@ mod tests {
         // Test agent creation with custom ID and name
         let custom_id = "test-agent-123";
         let custom_name = "TestAgent";
-        
+
         let agent = Agent::builder()
             .with_id(custom_id)
             .name(custom_name)
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(agent.agent_id(), custom_id);
         assert_eq!(agent.agent_name(), Some(custom_name));
@@ -2094,15 +2227,12 @@ mod tests {
     #[tokio::test]
     async fn test_agent_auto_id_generation() {
         // Test agent creation with auto-generated ID
-        let agent = Agent::builder()
-            .name("AutoIdAgent")
-            .build()
-            .await.unwrap();
+        let agent = Agent::builder().name("AutoIdAgent").build().await.unwrap();
 
         // Should have auto-generated UUID
         assert!(!agent.agent_id().is_empty());
         assert_eq!(agent.agent_name(), Some("AutoIdAgent"));
-        
+
         // ID should be a valid UUID format (36 characters with hyphens)
         assert_eq!(agent.agent_id().len(), 36);
         assert!(agent.agent_id().contains('-'));
@@ -2114,7 +2244,8 @@ mod tests {
             .with_id("parent-agent")
             .name("ParentAgent")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Test context creation
         let context = agent.create_context("planning");
@@ -2131,24 +2262,24 @@ mod tests {
             .with_id("test-agent")
             .name("TestAgent")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Test AgentContext::from_agent
         let context = AgentContext::from_agent(&agent, "researcher");
 
         assert_eq!(context.agent_id, agent.agent_id());
-        assert_eq!(context.agent_name, agent.agent_name().map(|s| s.to_string()));
+        assert_eq!(
+            context.agent_name,
+            agent.agent_name().map(|s| s.to_string())
+        );
         assert_eq!(context.agent_type, "researcher");
     }
 
     #[tokio::test]
     async fn test_agent_context_manual_creation() {
         // Test manual context creation
-        let context = AgentContext::new(
-            "manual-agent",
-            Some("ManualAgent".to_string()),
-            "analyst"
-        );
+        let context = AgentContext::new("manual-agent", Some("ManualAgent".to_string()), "analyst");
 
         assert_eq!(context.agent_id, "manual-agent");
         assert_eq!(context.agent_name, Some("ManualAgent".to_string()));
@@ -2166,14 +2297,21 @@ mod tests {
         };
 
         let agent = Agent::build_internal(
-            Arc::new(crate::llm::providers::bedrock::BedrockProvider::new(None).await.unwrap()),
+            Arc::new(
+                crate::llm::providers::bedrock::BedrockProvider::new(None)
+                    .await
+                    .unwrap(),
+            ),
             Box::new(crate::llm::models::Bedrock::ClaudeHaiku45),
             config,
             vec![],
+            vec![], // No middlewares
             crate::agent::config::ExecutionConfig::default(),
             None, // No override agent_id
             None, // No override agent_name
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(agent.agent_id(), "config-agent");
         assert_eq!(agent.agent_name(), Some("ConfigAgent"));
@@ -2186,7 +2324,8 @@ mod tests {
             .with_id("builder-agent")
             .name("BuilderAgent")
             .build()
-            .await.unwrap();
+            .await
+            .unwrap();
 
         // Builder values should take precedence
         assert_eq!(agent.agent_id(), "builder-agent");
@@ -2197,15 +2336,19 @@ mod tests {
     async fn test_agent_builder_with_custom_tools() {
         use crate::tools::Tool;
         use serde_json::json;
-        
+
         // Create a mock unified tool for testing
         #[derive(Debug)]
         struct TestTool;
-        
+
         #[async_trait::async_trait]
         impl Tool for TestTool {
-            fn name(&self) -> &str { "test_tool" }
-            fn description(&self) -> &str { "A test tool" }
+            fn name(&self) -> &str {
+                "test_tool"
+            }
+            fn description(&self) -> &str {
+                "A test tool"
+            }
             fn parameters_schema(&self) -> serde_json::Value {
                 json!({
                     "type": "object",
@@ -2214,16 +2357,26 @@ mod tests {
                     }
                 })
             }
-            async fn execute(&self, _parameters: Option<serde_json::Value>, _agent_context: Option<&crate::agent::AgentContext>) -> std::result::Result<crate::tools::ToolResult, crate::tools::ToolError> {
-                Ok(crate::tools::ToolResult::success(json!({"result": "test completed"})))
+            async fn execute(
+                &self,
+                _parameters: Option<serde_json::Value>,
+                _agent_context: Option<&crate::agent::AgentContext>,
+            ) -> std::result::Result<crate::tools::ToolResult, crate::tools::ToolError>
+            {
+                Ok(crate::tools::ToolResult::success(
+                    json!({"result": "test completed"}),
+                ))
             }
         }
 
         let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
-        
+
         match Agent::builder().tools(tools).build().await {
             Ok(agent) => {
-                assert_eq!(agent.config().model_id, "anthropic.claude-3-5-haiku-20241022-v1:0");
+                assert_eq!(
+                    agent.config().model_id,
+                    "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+                );
                 assert!(agent.conversation_history().is_empty());
                 assert!(agent.tool_registry.has_tool("test_tool").await);
             }

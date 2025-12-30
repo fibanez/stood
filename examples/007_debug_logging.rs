@@ -9,7 +9,7 @@
 //! ```bash
 //! # Full debug logging (very verbose, includes AWS SDK logs)
 //! RUST_LOG=trace cargo run --example 007_debug_logging
-//! 
+//!
 //! # Filtered to just our application traces (recommended)
 //! RUST_LOG=stood=trace cargo run --example 007_debug_logging 2>&1 | grep "📋 TRACE"
 //! ```
@@ -26,8 +26,8 @@
 use stood::agent::Agent;
 use stood::llm::models::Bedrock;
 use stood::tools::builtin::{CalculatorTool, CurrentTimeTool};
-use tracing_subscriber;
 use tokio;
+use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,7 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📋 Watch the debug logs to see the full conversation flow!");
     println!();
 
-    let response = agent.execute("What time is it now, and what's 17 * 29? Please use the appropriate tools.").await?;
+    let response = agent
+        .execute("What time is it now, and what's 17 * 29? Please use the appropriate tools.")
+        .await?;
 
     println!("✅ Final Response:");
     println!("📝 Content: {}", response.response);

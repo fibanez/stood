@@ -198,9 +198,9 @@ impl RequestBatchProcessor {
     async fn should_flush_batch(&self) -> bool {
         let requests = self.pending_requests.lock().await;
         let should_flush = requests.len() >= self.config.max_batch_size
-            || requests.front().map_or(false, |req| {
-                req.added_at.elapsed() >= self.config.batch_timeout
-            });
+            || requests
+                .front()
+                .is_some_and(|req| req.added_at.elapsed() >= self.config.batch_timeout);
 
         if should_flush {
             debug!("Should flush batch: {} requests pending", requests.len());
@@ -292,7 +292,7 @@ impl RequestBatchProcessor {
             }
         }
 
-        result.map_err(|_| BatchError::Timeout)?.map_err(|e| e)?;
+        result.map_err(|_| BatchError::Timeout)??;
         Ok(())
     }
 

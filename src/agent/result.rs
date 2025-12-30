@@ -4,9 +4,9 @@
 //! from an agent execution, including the response text, execution metrics,
 //! tool usage, and performance data.
 
-use std::time::Duration;
 use crate::agent::event_loop::EventLoopResult;
 use crate::telemetry::EventLoopMetrics;
+use std::time::Duration;
 
 /// Unified result type that contains all information from execution
 ///
@@ -30,11 +30,11 @@ use crate::telemetry::EventLoopMetrics;
 /// # use stood::agent::{Agent, AgentResult};
 /// # async fn example(mut agent: Agent) -> Result<(), Box<dyn std::error::Error>> {
 /// let result = agent.execute("Complex analysis task").await?;
-/// 
+///
 /// println!("Response: {}", result.response);
 /// println!("Used {} tools in {} cycles", result.tools_called.len(), result.execution.cycles);
 /// println!("Execution took {:?}", result.duration);
-/// 
+///
 /// if result.used_tools {
 ///     println!("Tools used: {}", result.tools_called.join(", "));
 /// }
@@ -45,31 +45,31 @@ use crate::telemetry::EventLoopMetrics;
 pub struct AgentResult {
     /// Final response text (matches Python agent response)
     pub response: String,
-    
+
     /// Execution metrics and details
     pub execution: ExecutionDetails,
-    
+
     /// Whether tools were used during execution
     pub used_tools: bool,
-    
+
     /// List of tools that were called (includes both successful and failed)
     pub tools_called: Vec<String>,
-    
+
     /// List of tools that completed successfully
     pub tools_successful: Vec<String>,
-    
+
     /// List of tools that failed
     pub tools_failed: Vec<String>,
-    
+
     /// Detailed tool call summary
     pub tool_call_summary: ToolCallSummary,
-    
+
     /// Total execution time
     pub duration: Duration,
-    
+
     /// Whether execution completed successfully
     pub success: bool,
-    
+
     /// Error message if execution failed
     pub error: Option<String>,
 }
@@ -82,16 +82,16 @@ pub struct AgentResult {
 pub struct ExecutionDetails {
     /// Number of reasoning cycles executed
     pub cycles: u32,
-    
+
     /// Number of model calls made
     pub model_calls: u32,
-    
+
     /// Number of tool executions performed
     pub tool_executions: u32,
-    
+
     /// Token usage information (if available)
     pub tokens: Option<TokenUsage>,
-    
+
     /// Performance metrics
     pub performance: PerformanceMetrics,
 }
@@ -101,10 +101,10 @@ pub struct ExecutionDetails {
 pub struct TokenUsage {
     /// Input tokens consumed
     pub input_tokens: u32,
-    
+
     /// Output tokens generated
     pub output_tokens: u32,
-    
+
     /// Total tokens used
     pub total_tokens: u32,
 }
@@ -114,13 +114,13 @@ pub struct TokenUsage {
 pub struct PerformanceMetrics {
     /// Average time per model interaction
     pub avg_cycle_time: Duration,
-    
+
     /// Total time spent on model calls
     pub model_time: Duration,
-    
+
     /// Total time spent on tool execution
     pub tool_time: Duration,
-    
+
     /// Whether streaming was used
     pub was_streamed: bool,
 }
@@ -130,13 +130,13 @@ pub struct PerformanceMetrics {
 pub struct ToolCallSummary {
     /// Total number of tool calls attempted
     pub total_attempts: u32,
-    
+
     /// Number of successful tool calls
     pub successful: u32,
-    
+
     /// Number of failed tool calls
     pub failed: u32,
-    
+
     /// Details of failed tool calls
     pub failed_calls: Vec<FailedToolCall>,
 }
@@ -146,13 +146,13 @@ pub struct ToolCallSummary {
 pub struct FailedToolCall {
     /// Name of the tool that failed
     pub tool_name: String,
-    
+
     /// Unique ID of the tool call
     pub tool_use_id: String,
-    
+
     /// Error message describing the failure
     pub error_message: String,
-    
+
     /// Duration of the failed attempt
     pub duration: Duration,
 }
@@ -177,14 +177,14 @@ impl AgentResult {
                     Some(TokenUsage {
                         input_tokens: event_result.metrics.total_tokens.input_tokens,
                         output_tokens: event_result.metrics.total_tokens.output_tokens,
-                        total_tokens: total_tokens,
+                        total_tokens,
                     })
                 } else {
                     // Always include token usage even if 0 for debugging
                     Some(TokenUsage {
                         input_tokens: event_result.metrics.total_tokens.input_tokens,
                         output_tokens: event_result.metrics.total_tokens.output_tokens,
-                        total_tokens: total_tokens,
+                        total_tokens,
                     })
                 }
             },
@@ -194,7 +194,7 @@ impl AgentResult {
         let successful_tools = event_result.metrics.tools_successful();
         let failed_tools = event_result.metrics.tools_failed();
         let failed_calls = event_result.metrics.failed_tool_calls();
-        
+
         let tool_call_summary = ToolCallSummary {
             total_attempts: event_result.metrics.total_tool_calls(),
             successful: event_result.metrics.summary().successful_tool_executions,

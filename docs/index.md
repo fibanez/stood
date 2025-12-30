@@ -10,7 +10,7 @@ Welcome to the Stood agent library documentation. This knowledge base provides c
 - **examples** - Code examples and tutorials
 - **tools** - Tool development approaches and best practices
 - **mcp** - Model Context Protocol integration guide
-- **telemetry** - Smart endpoint detection and observability setup
+- **telemetry** - Logging, metrics, and observability
 - **conversation_manager** - Tool-aware message history and conversation pruning
 - **context_manager** - Token counting and proactive context window management
 
@@ -107,15 +107,13 @@ Model Context Protocol integration with simplified agent integration:
 
 
 ### Telemetry Module
-Enterprise-grade observability with smart auto-detection and OpenTelemetry integration:
-- `TelemetryConfig` - Smart endpoint auto-detection with graceful degradation
-- `EventLoopMetrics` - Comprehensive agent performance and token usage tracking
-- OTLP debug logging system with detailed export visibility
-- GenAI semantic conventions for AI workload observability standards
-- Production integrations with Honeycomb, New Relic, Datadog, AWS X-Ray, GCP Trace
+Observability for AI agent performance monitoring:
+- `TelemetryConfig` - Configuration for telemetry and tracing
+- `EventLoopMetrics` - Agent performance and token usage tracking
+- `LoggingConfig` and `PerformanceTracer` - File logging and timing
+- GenAI semantic conventions for OpenTelemetry compatibility
 
 📚 [View Telemetry Module API Documentation](../src/telemetry/mod.rs)
-📊 [Complete Telemetry Demo](../examples/023_telemetry/README.md)
 
 ## Context Management: Understanding the Distinction
 

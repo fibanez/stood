@@ -4,7 +4,6 @@
 
 use super::ShutdownHandler;
 use async_trait::async_trait;
-use tracing::{info, debug, error};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,6 +13,7 @@ use std::{
 };
 use tokio::{sync::broadcast, time::timeout};
 use tracing::warn;
+use tracing::{debug, error, info};
 
 /// Shutdown handler for AWS Bedrock client connections
 pub struct BedrockShutdownHandler {
@@ -59,12 +59,18 @@ pub struct TelemetryShutdownHandler {
     flush_timeout: Duration,
 }
 
-impl TelemetryShutdownHandler {
-    pub fn new() -> Self {
+impl Default for TelemetryShutdownHandler {
+    fn default() -> Self {
         Self {
             name: "telemetry".to_string(),
             flush_timeout: Duration::from_secs(5),
         }
+    }
+}
+
+impl TelemetryShutdownHandler {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn with_flush_timeout(mut self, timeout: Duration) -> Self {
@@ -294,11 +300,17 @@ pub struct ConfigurationShutdownHandler {
     name: String,
 }
 
-impl ConfigurationShutdownHandler {
-    pub fn new() -> Self {
+impl Default for ConfigurationShutdownHandler {
+    fn default() -> Self {
         Self {
             name: "configuration".to_string(),
         }
+    }
+}
+
+impl ConfigurationShutdownHandler {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

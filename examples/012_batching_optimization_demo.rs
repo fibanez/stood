@@ -3,12 +3,12 @@
 //! This example demonstrates how batching techniques dramatically improve performance
 //! for high-frequency I/O operations by reducing expensive file system calls.
 
-use stood::agent::{Agent, LogLevel};
-use stood::agent::callbacks::{
-    BatchingCallbackHandler, BatchConfig, CallbackHandler, CallbackEvent, CallbackError, 
-};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use stood::agent::callbacks::{
+    BatchConfig, BatchingCallbackHandler, CallbackError, CallbackEvent, CallbackHandler,
+};
+use stood::agent::{Agent, LogLevel};
 use tokio::fs;
 
 /// Performance monitoring callback handler that writes to files (expensive I/O)
@@ -27,14 +27,13 @@ impl FileWritingMonitor {
             file_path,
         }
     }
-    
+
     fn get_stats(&self) -> (usize, Option<Duration>) {
         let count = *self.event_count.lock().unwrap();
-        let elapsed = self.start_time.lock().unwrap()
-            .map(|start| start.elapsed());
+        let elapsed = self.start_time.lock().unwrap().map(|start| start.elapsed());
         (count, elapsed)
     }
-    
+
     #[allow(dead_code)]
     fn reset(&self) {
         *self.event_count.lock().unwrap() = 0;
@@ -52,27 +51,33 @@ impl CallbackHandler for FileWritingMonitor {
                 *start_guard = Some(Instant::now());
             }
         }
-        
+
         // Increment counter
         let count = {
             let mut count_guard = self.event_count.lock().unwrap();
             *count_guard += 1;
             *count_guard
         };
-        
+
         // Expensive I/O operation: Write each event to a file
         let content = match event {
-            CallbackEvent::ContentDelta { delta, .. } => format!("[{}] Content: {}\n", count, delta),
-            CallbackEvent::ToolStart { tool_name, .. } => format!("[{}] Tool started: {}\n", count, tool_name),
-            CallbackEvent::ToolComplete { tool_name, .. } => format!("[{}] Tool completed: {}\n", count, tool_name),
+            CallbackEvent::ContentDelta { delta, .. } => {
+                format!("[{}] Content: {}\n", count, delta)
+            }
+            CallbackEvent::ToolStart { tool_name, .. } => {
+                format!("[{}] Tool started: {}\n", count, tool_name)
+            }
+            CallbackEvent::ToolComplete { tool_name, .. } => {
+                format!("[{}] Tool completed: {}\n", count, tool_name)
+            }
             _ => format!("[{}] Other event\n", count),
         };
-        
+
         // Individual file write for each event (this is expensive!)
-        fs::write(&self.file_path, content).await.map_err(|e| {
-            CallbackError::ExecutionFailed(format!("File write failed: {}", e))
-        })?;
-        
+        fs::write(&self.file_path, content)
+            .await
+            .map_err(|e| CallbackError::ExecutionFailed(format!("File write failed: {}", e)))?;
+
         Ok(())
     }
 }
@@ -95,14 +100,13 @@ impl BatchingFileMonitor {
             batch_buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
     fn get_stats(&self) -> (usize, Option<Duration>) {
         let count = *self.event_count.lock().unwrap();
-        let elapsed = self.start_time.lock().unwrap()
-            .map(|start| start.elapsed());
+        let elapsed = self.start_time.lock().unwrap().map(|start| start.elapsed());
         (count, elapsed)
     }
-    
+
     async fn flush_batch(&self) -> Result<(), CallbackError> {
         let batch = {
             let mut buffer = self.batch_buffer.lock().unwrap();
@@ -113,12 +117,12 @@ impl BatchingFileMonitor {
             buffer.clear();
             batch
         };
-        
+
         // Single file write for entire batch (much more efficient!)
         fs::write(&self.file_path, batch).await.map_err(|e| {
             CallbackError::ExecutionFailed(format!("Batch file write failed: {}", e))
         })?;
-        
+
         Ok(())
     }
 }
@@ -133,32 +137,38 @@ impl CallbackHandler for BatchingFileMonitor {
                 *start_guard = Some(Instant::now());
             }
         }
-        
+
         // Increment counter
         let count = {
             let mut count_guard = self.event_count.lock().unwrap();
             *count_guard += 1;
             *count_guard
         };
-        
+
         // Add to batch buffer instead of writing immediately
         let content = match event {
-            CallbackEvent::ContentDelta { delta, .. } => format!("[{}] Content: {}\n", count, delta),
-            CallbackEvent::ToolStart { tool_name, .. } => format!("[{}] Tool started: {}\n", count, tool_name),
-            CallbackEvent::ToolComplete { tool_name, .. } => format!("[{}] Tool completed: {}\n", count, tool_name),
+            CallbackEvent::ContentDelta { delta, .. } => {
+                format!("[{}] Content: {}\n", count, delta)
+            }
+            CallbackEvent::ToolStart { tool_name, .. } => {
+                format!("[{}] Tool started: {}\n", count, tool_name)
+            }
+            CallbackEvent::ToolComplete { tool_name, .. } => {
+                format!("[{}] Tool completed: {}\n", count, tool_name)
+            }
             _ => format!("[{}] Other event\n", count),
         };
-        
+
         let should_flush = {
             let mut buffer = self.batch_buffer.lock().unwrap();
             buffer.push(content);
             buffer.len() >= 50
         };
-        
+
         if should_flush {
             self.flush_batch().await?;
         }
-        
+
         Ok(())
     }
 }
@@ -169,15 +179,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=============================");
     println!();
     println!("📋 What this example demonstrates:");
-    println!("   This example shows how batching dramatically improves I/O performance by reducing");
+    println!(
+        "   This example shows how batching dramatically improves I/O performance by reducing"
+    );
     println!("   expensive file system calls. Instead of writing each event individually to disk,");
     println!("   batching accumulates events in memory and writes them in larger, more efficient chunks.");
     println!();
 
     // Turn off all logging for clean demo output
-    tracing_subscriber::fmt()
-        .with_env_filter("off")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("off").init();
 
     // Demo 1: Compare file I/O performance with and without batching
     println!("📊 Demo 1: File I/O Batching Performance Comparison");
@@ -189,16 +199,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let batched_file = temp_dir.join("stood_batched_test.log");
 
     // Create performance monitors with file operations
-    let regular_monitor = Arc::new(FileWritingMonitor::new(regular_file.to_string_lossy().to_string()));
-    let batched_monitor = Arc::new(BatchingFileMonitor::new(batched_file.to_string_lossy().to_string()));
+    let regular_monitor = Arc::new(FileWritingMonitor::new(
+        regular_file.to_string_lossy().to_string(),
+    ));
+    let batched_monitor = Arc::new(BatchingFileMonitor::new(
+        batched_file.to_string_lossy().to_string(),
+    ));
 
     // Test regular file handler (individual writes)
     println!("🔄 Testing individual file writes (expensive I/O)...");
     let regular_handler = Arc::clone(&regular_monitor);
     let regular_start = Instant::now();
-    
+
     // Simulate high-frequency content delta events with file I/O
-    for i in 0..100 {  // Reduced count for realistic file I/O testing
+    for i in 0..100 {
+        // Reduced count for realistic file I/O testing
         let event = CallbackEvent::ContentDelta {
             delta: format!("content chunk {}", i),
             complete: false,
@@ -207,23 +222,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         regular_handler.handle_event(event).await?;
     }
     let regular_duration = regular_start.elapsed();
-    
+
     // Test batched file handler (batched writes)
     println!("🔄 Testing batched file writes (efficient I/O)...");
     let batch_config = BatchConfig {
-        max_batch_size: 50,  // Larger batches for file I/O
+        max_batch_size: 50, // Larger batches for file I/O
         max_batch_delay: Duration::from_millis(100),
         batch_content_deltas: true,
         batch_tool_events: false,
     };
-    
+
     let batched_handler = BatchingCallbackHandler::new(
         batched_monitor.clone() as Arc<dyn CallbackHandler>,
         batch_config,
     );
-    
+
     let batched_start = Instant::now();
-    for i in 0..100 {  // Same count for fair comparison
+    for i in 0..100 {
+        // Same count for fair comparison
         let event = CallbackEvent::ContentDelta {
             delta: format!("content chunk {}", i),
             complete: false,
@@ -231,31 +247,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         batched_handler.handle_event(event).await?;
     }
-    
+
     // Flush remaining batched events and final batch
     batched_handler.flush().await?;
     batched_monitor.flush_batch().await?;
     let batched_duration = batched_start.elapsed();
-    
+
     // Wait for async I/O completion
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Display results
     let (regular_count, _) = regular_monitor.get_stats();
     let (batched_count, _) = batched_monitor.get_stats();
-    
+
     println!("✅ File I/O Performance Comparison Results:");
     println!("   Individual file writes:");
     println!("     - Events processed: {}", regular_count);
     println!("     - Total time: {:?}", regular_duration);
-    println!("     - Operations/sec: {:.1}", 100.0 / regular_duration.as_secs_f64());
-    
+    println!(
+        "     - Operations/sec: {:.1}",
+        100.0 / regular_duration.as_secs_f64()
+    );
+
     println!("   Batched file writes:");
     println!("     - Events processed: {}", batched_count);
     println!("     - Total time: {:?}", batched_duration);
-    println!("     - Operations/sec: {:.1}", 100.0 / batched_duration.as_secs_f64());
-    
-    let improvement = (regular_duration.as_secs_f64() / batched_duration.as_secs_f64() - 1.0) * 100.0;
+    println!(
+        "     - Operations/sec: {:.1}",
+        100.0 / batched_duration.as_secs_f64()
+    );
+
+    let improvement =
+        (regular_duration.as_secs_f64() / batched_duration.as_secs_f64() - 1.0) * 100.0;
     if improvement > 0.0 {
         println!("   📈 Batching improvement: {:.1}% faster", improvement);
     } else {
@@ -273,9 +296,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Creating agents with different callback configurations...");
 
     // Check AWS credentials
-    let has_aws = std::env::var("AWS_ACCESS_KEY_ID").is_ok() || 
-                  std::env::var("AWS_PROFILE").is_ok() || 
-                  std::env::var("AWS_ROLE_ARN").is_ok();
+    let has_aws = std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+        || std::env::var("AWS_PROFILE").is_ok()
+        || std::env::var("AWS_ROLE_ARN").is_ok();
 
     if has_aws {
         println!("🔗 AWS credentials detected - testing with real agent...\n");
@@ -284,13 +307,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut regular_agent = Agent::builder()
             .with_printing_callbacks()
             .with_log_level(LogLevel::Off)
-            .build().await?;
+            .build()
+            .await?;
 
         // Agent with batched printing callbacks for better performance
         let mut batched_agent = Agent::builder()
             .with_batched_printing_callbacks()
             .with_log_level(LogLevel::Off)
-            .build().await?;
+            .build()
+            .await?;
 
         println!("🧮 Testing regular callbacks execution:");
         let regular_start = Instant::now();
@@ -317,7 +342,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("   ⚠️ Batched execution failed: {}", e);
             }
         }
-
     } else {
         println!("⚠️ No AWS credentials found - demonstrating configuration only");
         println!("Set up AWS credentials to see live performance comparison:");
@@ -339,18 +363,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example of custom batch configuration
     let custom_batch_config = BatchConfig {
-        max_batch_size: 20,  // Larger batches
-        max_batch_delay: Duration::from_millis(25),  // Lower latency
+        max_batch_size: 20,                         // Larger batches
+        max_batch_delay: Duration::from_millis(25), // Lower latency
         batch_content_deltas: true,
-        batch_tool_events: true,  // Also batch tool events
+        batch_tool_events: true, // Also batch tool events
     };
 
     println!("\n📝 Example custom configuration:");
     println!("   BatchConfig {{");
-    println!("       max_batch_size: {},", custom_batch_config.max_batch_size);
-    println!("       max_batch_delay: {:?},", custom_batch_config.max_batch_delay);
-    println!("       batch_content_deltas: {},", custom_batch_config.batch_content_deltas);
-    println!("       batch_tool_events: {},", custom_batch_config.batch_tool_events);
+    println!(
+        "       max_batch_size: {},",
+        custom_batch_config.max_batch_size
+    );
+    println!(
+        "       max_batch_delay: {:?},",
+        custom_batch_config.max_batch_delay
+    );
+    println!(
+        "       batch_content_deltas: {},",
+        custom_batch_config.batch_content_deltas
+    );
+    println!(
+        "       batch_tool_events: {},",
+        custom_batch_config.batch_tool_events
+    );
     println!("   }}");
 
     println!("\n✅ Batching Optimization Demo completed!");

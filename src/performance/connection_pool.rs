@@ -283,7 +283,7 @@ impl BedrockConnectionPool {
                 }
             }
         }
-        .and_then(|(client, mut metadata)| {
+        .map(|(client, mut metadata)| {
             metadata.record_usage();
             let connection_id = metadata.id;
 
@@ -294,11 +294,7 @@ impl BedrockConnectionPool {
                 metadata.age()
             );
 
-            Ok(PooledConnection::new(
-                client,
-                Arc::new(self.clone()),
-                connection_id,
-            ))
+            PooledConnection::new(client, Arc::new(self.clone()), connection_id)
         })
     }
 

@@ -690,7 +690,6 @@ impl MCPClient {
         Ok(session.available_tools.values().cloned().collect())
     }
 
-
     /// Execute a tool on the MCP server with parameters
     ///
     /// Calls the named tool with the provided arguments and returns the results.

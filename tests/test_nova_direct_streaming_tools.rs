@@ -1,12 +1,12 @@
+use futures::StreamExt;
 use std::env;
 use stood::{
     llm::{
-        traits::{ChatConfig, Tool, ProviderType, StreamEvent},
-        registry::{PROVIDER_REGISTRY, ProviderRegistry},
+        registry::{ProviderRegistry, PROVIDER_REGISTRY},
+        traits::{ChatConfig, ProviderType, StreamEvent, Tool},
     },
-    types::{Messages},
+    types::Messages,
 };
-use futures::StreamExt;
 
 #[tokio::test]
 async fn test_nova_direct_streaming_with_tools() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,26 +30,24 @@ async fn test_nova_direct_streaming_with_tools() -> Result<(), Box<dyn std::erro
         .get_provider(ProviderType::Bedrock)
         .await
         .map_err(|e| format!("Failed to get Bedrock provider: {}", e))?;
-    
+
     let provider = provider_arc.as_ref();
 
     // Create file_read tool definition
-    let tools = vec![
-        Tool {
-            name: "file_read".to_string(),
-            description: "Read the contents of a text file".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file to read"
-                    }
-                },
-                "required": ["path"]
-            }),
-        }
-    ];
+    let tools = vec![Tool {
+        name: "file_read".to_string(),
+        description: "Read the contents of a text file".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to read"
+                }
+            },
+            "required": ["path"]
+        }),
+    }];
 
     // Test streaming with tools
     println!("\n=== Testing Nova Streaming with Tools ===");
@@ -66,18 +64,15 @@ async fn test_nova_direct_streaming_with_tools() -> Result<(), Box<dyn std::erro
     };
 
     println!("\nStarting streaming request...");
-    let mut stream = provider.chat_streaming_with_tools(
-        "us.amazon.nova-lite-v1:0",
-        &messages,
-        &tools,
-        &config,
-    ).await?;
+    let mut stream = provider
+        .chat_streaming_with_tools("us.amazon.nova-lite-v1:0", &messages, &tools, &config)
+        .await?;
 
     println!("\nReceiving stream events:");
     let mut event_count = 0;
     let mut tool_calls = Vec::new();
     let mut content_parts = Vec::new();
-    
+
     while let Some(event) = stream.next().await {
         event_count += 1;
         match &event {
@@ -86,10 +81,16 @@ async fn test_nova_direct_streaming_with_tools() -> Result<(), Box<dyn std::erro
                 content_parts.push(delta.clone());
             }
             StreamEvent::ToolCallStart { tool_call } => {
-                println!("\n🔧 Tool call start: {} ({})", tool_call.name, tool_call.id);
+                println!(
+                    "\n🔧 Tool call start: {} ({})",
+                    tool_call.name, tool_call.id
+                );
                 tool_calls.push(tool_call.clone());
             }
-            StreamEvent::ToolCallDelta { tool_call_id, delta } => {
+            StreamEvent::ToolCallDelta {
+                tool_call_id,
+                delta,
+            } => {
                 println!("🔧 Tool call delta for {}: {}", tool_call_id, delta);
             }
             StreamEvent::Done { .. } => {
@@ -105,15 +106,16 @@ async fn test_nova_direct_streaming_with_tools() -> Result<(), Box<dyn std::erro
             }
         }
     }
-    
+
     println!("\n\n=== Stream Results ===");
     println!("Total events: {}", event_count);
     println!("Content: {}", content_parts.join(""));
     println!("Tool calls: {}", tool_calls.len());
     for (i, tool_call) in tool_calls.iter().enumerate() {
-        println!("  Tool {}: {} with input: {}", 
-            i + 1, 
-            tool_call.name, 
+        println!(
+            "  Tool {}: {} with input: {}",
+            i + 1,
+            tool_call.name,
             serde_json::to_string_pretty(&tool_call.input)?
         );
     }

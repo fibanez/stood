@@ -54,7 +54,7 @@
 //! # fn handle_error(error: StoodError) {
 //! match error {
 //!     _ if error.is_retryable() => {
-//!         println!("Retrying operation in {}ms", 
+//!         println!("Retrying operation in {}ms",
 //!                  error.retry_delay_ms().unwrap_or(1000));
 //!         // Implement retry logic
 //!     }
@@ -346,37 +346,67 @@ impl BedrockErrorContext {
     }
 
     /// Extract comprehensive error context from AWS Bedrock InvokeModelError
-    pub fn from_invoke_model_error(error: &aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError) -> Self {
+    pub fn from_invoke_model_error(
+        error: &aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError,
+    ) -> Self {
         use aws_sdk_bedrockruntime::error::ProvideErrorMetadata;
-        use aws_sdk_bedrockruntime::operation::RequestId;
         use aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError;
+        use aws_sdk_bedrockruntime::operation::RequestId;
 
         let error_code = error.code().map(|s| s.to_string());
         let mut error_message = error.message().unwrap_or("Unknown error").to_string();
         let request_id = error.request_id().map(|s| s.to_string());
-        
+
         // Enhance error message with additional context when generic
-        if error_message == "service error" || error_message.is_empty() || error_message == "Unknown error" {
+        if error_message == "service error"
+            || error_message.is_empty()
+            || error_message == "Unknown error"
+        {
             let error_debug = format!("{:?}", error);
             let enhanced_message = if error_debug.len() > 200 {
-                format!("Service error - InvokeModel details: {}...", &error_debug[..200])
+                format!(
+                    "Service error - InvokeModel details: {}...",
+                    &error_debug[..200]
+                )
             } else {
                 format!("Service error - InvokeModel details: {}", error_debug)
             };
             error_message = enhanced_message;
         }
-        
+
         let (error_type, is_retryable, suggested_retry_delay_ms) = match error {
-            InvokeModelError::ThrottlingException(_) => ("ThrottlingException".to_string(), true, Some(2000)),
-            InvokeModelError::ServiceUnavailableException(_) => ("ServiceUnavailableException".to_string(), true, Some(1000)),
-            InvokeModelError::ModelTimeoutException(_) => ("ModelTimeoutException".to_string(), true, Some(5000)),
-            InvokeModelError::ModelNotReadyException(_) => ("ModelNotReadyException".to_string(), true, Some(10000)),
-            InvokeModelError::InternalServerException(_) => ("InternalServerException".to_string(), true, Some(3000)),
-            InvokeModelError::AccessDeniedException(_) => ("AccessDeniedException".to_string(), false, None),
-            InvokeModelError::ValidationException(_) => ("ValidationException".to_string(), false, None),
-            InvokeModelError::ResourceNotFoundException(_) => ("ResourceNotFoundException".to_string(), false, None),
-            InvokeModelError::ServiceQuotaExceededException(_) => ("ServiceQuotaExceededException".to_string(), true, Some(30000)),
-            InvokeModelError::ModelErrorException(_) => ("ModelErrorException".to_string(), false, None),
+            InvokeModelError::ThrottlingException(_) => {
+                ("ThrottlingException".to_string(), true, Some(2000))
+            }
+            InvokeModelError::ServiceUnavailableException(_) => {
+                ("ServiceUnavailableException".to_string(), true, Some(1000))
+            }
+            InvokeModelError::ModelTimeoutException(_) => {
+                ("ModelTimeoutException".to_string(), true, Some(5000))
+            }
+            InvokeModelError::ModelNotReadyException(_) => {
+                ("ModelNotReadyException".to_string(), true, Some(10000))
+            }
+            InvokeModelError::InternalServerException(_) => {
+                ("InternalServerException".to_string(), true, Some(3000))
+            }
+            InvokeModelError::AccessDeniedException(_) => {
+                ("AccessDeniedException".to_string(), false, None)
+            }
+            InvokeModelError::ValidationException(_) => {
+                ("ValidationException".to_string(), false, None)
+            }
+            InvokeModelError::ResourceNotFoundException(_) => {
+                ("ResourceNotFoundException".to_string(), false, None)
+            }
+            InvokeModelError::ServiceQuotaExceededException(_) => (
+                "ServiceQuotaExceededException".to_string(),
+                true,
+                Some(30000),
+            ),
+            InvokeModelError::ModelErrorException(_) => {
+                ("ModelErrorException".to_string(), false, None)
+            }
             _ => ("UnknownInvokeModelError".to_string(), false, None),
         };
 
@@ -400,27 +430,47 @@ impl BedrockErrorContext {
         let error_code = error.code().map(|s| s.to_string());
         let mut error_message = error.message().unwrap_or("Unknown error").to_string();
         let request_id = error.request_id().map(|s| s.to_string());
-        
+
         // Enhance error message with additional context when generic
-        if error_message == "service error" || error_message.is_empty() || error_message == "Unknown error" {
+        if error_message == "service error"
+            || error_message.is_empty()
+            || error_message == "Unknown error"
+        {
             let error_debug = format!("{:?}", error);
             error_message = if error_debug.len() > 200 {
-                format!("Service error - AWS SDK details: {}...", &error_debug[..200])
+                format!(
+                    "Service error - AWS SDK details: {}...",
+                    &error_debug[..200]
+                )
             } else {
                 format!("Service error - AWS SDK details: {}", error_debug)
             };
         }
-        
+
         let (error_type, is_retryable, suggested_retry_delay_ms) = match error {
             Error::ThrottlingException(_) => ("ThrottlingException".to_string(), true, Some(2000)),
-            Error::ServiceUnavailableException(_) => ("ServiceUnavailableException".to_string(), true, Some(1000)),
-            Error::ModelTimeoutException(_) => ("ModelTimeoutException".to_string(), true, Some(5000)),
-            Error::ModelNotReadyException(_) => ("ModelNotReadyException".to_string(), true, Some(10000)),
-            Error::InternalServerException(_) => ("InternalServerException".to_string(), true, Some(3000)),
+            Error::ServiceUnavailableException(_) => {
+                ("ServiceUnavailableException".to_string(), true, Some(1000))
+            }
+            Error::ModelTimeoutException(_) => {
+                ("ModelTimeoutException".to_string(), true, Some(5000))
+            }
+            Error::ModelNotReadyException(_) => {
+                ("ModelNotReadyException".to_string(), true, Some(10000))
+            }
+            Error::InternalServerException(_) => {
+                ("InternalServerException".to_string(), true, Some(3000))
+            }
             Error::AccessDeniedException(_) => ("AccessDeniedException".to_string(), false, None),
             Error::ValidationException(_) => ("ValidationException".to_string(), false, None),
-            Error::ResourceNotFoundException(_) => ("ResourceNotFoundException".to_string(), false, None),
-            Error::ServiceQuotaExceededException(_) => ("ServiceQuotaExceededException".to_string(), true, Some(30000)),
+            Error::ResourceNotFoundException(_) => {
+                ("ResourceNotFoundException".to_string(), false, None)
+            }
+            Error::ServiceQuotaExceededException(_) => (
+                "ServiceQuotaExceededException".to_string(),
+                true,
+                Some(30000),
+            ),
             Error::ModelErrorException(_) => ("ModelErrorException".to_string(), false, None),
             _ => {
                 // Extract more specific error type from debug representation
@@ -439,7 +489,7 @@ impl BedrockErrorContext {
                     "UnknownError"
                 };
                 (specific_error_type.to_string(), false, None)
-            },
+            }
         };
 
         Self {
@@ -455,146 +505,130 @@ impl BedrockErrorContext {
 
     /// Get detailed error information for logging
     pub fn to_detailed_string(&self) -> String {
-        let mut details = format!("Error Type: {}\nMessage: {}", self.error_type, self.error_message);
-        
+        let mut details = format!(
+            "Error Type: {}\nMessage: {}",
+            self.error_type, self.error_message
+        );
+
         if let Some(code) = &self.error_code {
             details.push_str(&format!("\nError Code: {}", code));
         }
-        
+
         if let Some(request_id) = &self.request_id {
             details.push_str(&format!("\nRequest ID: {}", request_id));
         }
-        
+
         details.push_str(&format!("\nRetryable: {}", self.is_retryable));
-        
+
         if let Some(delay) = self.suggested_retry_delay_ms {
             details.push_str(&format!("\nSuggested Retry Delay: {}ms", delay));
         }
-        
+
         details
     }
 
     /// Get detailed error information with model context for logging
     pub fn to_detailed_string_with_model(&self, model_id: &str) -> String {
-        let mut details = format!("Model: {}\nError Type: {}\nMessage: {}", model_id, self.error_type, self.error_message);
-        
+        let mut details = format!(
+            "Model: {}\nError Type: {}\nMessage: {}",
+            model_id, self.error_type, self.error_message
+        );
+
         if let Some(code) = &self.error_code {
             details.push_str(&format!("\nError Code: {}", code));
         }
-        
+
         if let Some(request_id) = &self.request_id {
             details.push_str(&format!("\nRequest ID: {}", request_id));
         }
-        
+
         details.push_str(&format!("\nRetryable: {}", self.is_retryable));
-        
+
         if let Some(delay) = self.suggested_retry_delay_ms {
             details.push_str(&format!("\nSuggested Retry Delay: {}ms", delay));
         }
-        
+
         details
     }
 
     /// Check if this error indicates a model availability issue
     pub fn is_model_availability_error(&self) -> bool {
-        self.error_message.to_lowercase().contains("model") && 
-        (self.error_message.to_lowercase().contains("not available") ||
-         self.error_message.to_lowercase().contains("not found") ||
-         self.error_message.to_lowercase().contains("not supported") ||
-         self.error_type == "ResourceNotFoundException")
+        self.error_message.to_lowercase().contains("model")
+            && (self.error_message.to_lowercase().contains("not available")
+                || self.error_message.to_lowercase().contains("not found")
+                || self.error_message.to_lowercase().contains("not supported")
+                || self.error_type == "ResourceNotFoundException")
     }
-    
+
     /// Convert to StoodError with model context
     pub fn to_stood_error_with_model(&self, model_id: &str) -> StoodError {
         match self.error_type.as_str() {
-            "ThrottlingException" => {
-                StoodError::throttling_error(format!(
-                    "Bedrock throttling for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "AccessDeniedException" => {
-                StoodError::access_denied(format!(
-                    "Bedrock access denied for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ValidationException" => {
-                StoodError::validation_error(format!(
-                    "Bedrock validation failed for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ServiceUnavailableException" => {
-                StoodError::service_unavailable(format!(
-                    "Bedrock service unavailable for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ResourceNotFoundException" => {
-                StoodError::resource_not_found(format!(
-                    "Bedrock resource not found for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ServiceQuotaExceededException" => {
-                StoodError::quota_exceeded(format!(
-                    "Bedrock quota exceeded for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ModelTimeoutException" => {
-                StoodError::timeout_error(60000)
-            },
-            "ModelNotReadyException" => {
-                StoodError::service_unavailable(format!(
-                    "Bedrock model {} not ready: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "InternalServerException" => {
-                StoodError::model_error(format!(
-                    "Bedrock internal server error for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "ModelErrorException" => {
-                StoodError::model_error(format!(
-                    "Bedrock model error for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
-            "NetworkError" => {
-                StoodError::network_error(format!(
-                    "Bedrock network error for model {}: {} (Request ID: {})", 
-                    model_id,
-                    self.error_message,
-                    self.request_id.as_ref().unwrap_or(&"unknown".to_string())
-                ))
-            },
+            "ThrottlingException" => StoodError::throttling_error(format!(
+                "Bedrock throttling for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "AccessDeniedException" => StoodError::access_denied(format!(
+                "Bedrock access denied for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ValidationException" => StoodError::validation_error(format!(
+                "Bedrock validation failed for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ServiceUnavailableException" => StoodError::service_unavailable(format!(
+                "Bedrock service unavailable for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ResourceNotFoundException" => StoodError::resource_not_found(format!(
+                "Bedrock resource not found for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ServiceQuotaExceededException" => StoodError::quota_exceeded(format!(
+                "Bedrock quota exceeded for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ModelTimeoutException" => StoodError::timeout_error(60000),
+            "ModelNotReadyException" => StoodError::service_unavailable(format!(
+                "Bedrock model {} not ready: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "InternalServerException" => StoodError::model_error(format!(
+                "Bedrock internal server error for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "ModelErrorException" => StoodError::model_error(format!(
+                "Bedrock model error for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
+            "NetworkError" => StoodError::network_error(format!(
+                "Bedrock network error for model {}: {} (Request ID: {})",
+                model_id,
+                self.error_message,
+                self.request_id.as_ref().unwrap_or(&"unknown".to_string())
+            )),
             _ => {
                 // Check if this is a model availability issue
                 if self.is_model_availability_error() {
                     StoodError::resource_not_found(format!(
-                        "Bedrock model {} not available: {} (Request ID: {}) - Verify model is enabled in your AWS region", 
+                        "Bedrock model {} not available: {} (Request ID: {}) - Verify model is enabled in your AWS region",
                         model_id,
                         self.error_message,
                         self.request_id.as_ref().unwrap_or(&"unknown".to_string())
@@ -602,7 +636,7 @@ impl BedrockErrorContext {
                 } else {
                     // Provide enhanced unknown error with error type context
                     StoodError::model_error(format!(
-                        "Bedrock {} for model {}: {} (Request ID: {}) - Check AWS service status and model availability", 
+                        "Bedrock {} for model {}: {} (Request ID: {}) - Check AWS service status and model availability",
                         self.error_type,
                         model_id,
                         self.error_message,
@@ -671,9 +705,18 @@ impl From<aws_sdk_bedrockruntime::Error> for StoodError {
 }
 
 /// Map AWS SDK `SdkError<InvokeModelError>` to StoodError with detailed error information
-impl From<aws_sdk_bedrockruntime::error::SdkError<aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError>> for StoodError
+impl
+    From<
+        aws_sdk_bedrockruntime::error::SdkError<
+            aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError,
+        >,
+    > for StoodError
 {
-    fn from(error: aws_sdk_bedrockruntime::error::SdkError<aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError>) -> Self {
+    fn from(
+        error: aws_sdk_bedrockruntime::error::SdkError<
+            aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError,
+        >,
+    ) -> Self {
         use aws_sdk_bedrockruntime::error::SdkError;
 
         match error {
@@ -681,56 +724,60 @@ impl From<aws_sdk_bedrockruntime::error::SdkError<aws_sdk_bedrockruntime::operat
                 // Extract detailed service error information
                 let service_error = context.err();
                 let mut error_context = BedrockErrorContext::from_invoke_model_error(service_error);
-                
+
                 // Add HTTP status and additional context from the service error context
                 let status = context.raw().status();
                 let http_status = status.as_u16();
                 if error_context.error_message.starts_with("Service error") {
-                    error_context.error_message = format!("{} (HTTP {})", error_context.error_message, http_status);
+                    error_context.error_message =
+                        format!("{} (HTTP {})", error_context.error_message, http_status);
                 } else if error_context.error_message == "service error" {
-                    error_context.error_message = format!("Bedrock HTTP {} service error - raw response available", http_status);
+                    error_context.error_message = format!(
+                        "Bedrock HTTP {} service error - raw response available",
+                        http_status
+                    );
                 }
-                
+
                 // Create StoodError based on the specific service error type
                 match service_error {
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ThrottlingException(_) => {
                         StoodError::throttling_error(format!(
-                            "Bedrock throttling: {} (Request ID: {})", 
+                            "Bedrock throttling: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::AccessDeniedException(_) => {
                         StoodError::access_denied(format!(
-                            "Bedrock access denied: {} (Request ID: {})", 
+                            "Bedrock access denied: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ValidationException(_) => {
                         StoodError::validation_error(format!(
-                            "Bedrock validation failed: {} (Request ID: {})", 
+                            "Bedrock validation failed: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ServiceUnavailableException(_) => {
                         StoodError::service_unavailable(format!(
-                            "Bedrock service unavailable: {} (Request ID: {})", 
+                            "Bedrock service unavailable: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ResourceNotFoundException(_) => {
                         StoodError::resource_not_found(format!(
-                            "Bedrock resource not found: {} (Request ID: {})", 
+                            "Bedrock resource not found: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ServiceQuotaExceededException(_) => {
                         StoodError::quota_exceeded(format!(
-                            "Bedrock quota exceeded: {} (Request ID: {})", 
+                            "Bedrock quota exceeded: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
@@ -740,55 +787,58 @@ impl From<aws_sdk_bedrockruntime::error::SdkError<aws_sdk_bedrockruntime::operat
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ModelNotReadyException(_) => {
                         StoodError::service_unavailable(format!(
-                            "Bedrock model not ready: {} (Request ID: {})", 
+                            "Bedrock model not ready: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::InternalServerException(_) => {
                         StoodError::model_error(format!(
-                            "Bedrock internal server error: {} (Request ID: {})", 
+                            "Bedrock internal server error: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     aws_sdk_bedrockruntime::operation::invoke_model::InvokeModelError::ModelErrorException(_) => {
                         StoodError::model_error(format!(
-                            "Bedrock model error: {} (Request ID: {})", 
+                            "Bedrock model error: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     },
                     _ => {
                         StoodError::model_error(format!(
-                            "Bedrock unknown service error: {} (Request ID: {})", 
+                            "Bedrock unknown service error: {} (Request ID: {})",
                             error_context.error_message,
                             error_context.request_id.unwrap_or_else(|| "unknown".to_string())
                         ))
                     }
                 }
-            },
-            SdkError::TimeoutError(_context) => {
-                StoodError::timeout_error(30000)
-            },
+            }
+            SdkError::TimeoutError(_context) => StoodError::timeout_error(30000),
             SdkError::ResponseError(context) => {
                 StoodError::network_error(format!("Bedrock response error: {:?}", context))
-            },
+            }
             SdkError::DispatchFailure(context) => {
                 StoodError::network_error(format!("Bedrock dispatch failure: {:?}", context))
-            },
-            SdkError::ConstructionFailure(context) => {
-                StoodError::configuration_error(format!("Bedrock construction failure: {:?}", context))
-            },
+            }
+            SdkError::ConstructionFailure(context) => StoodError::configuration_error(format!(
+                "Bedrock construction failure: {:?}",
+                context
+            )),
             _ => {
                 // Extract more details from unknown SDK errors
                 let error_string = error.to_string();
-                if error_string.to_lowercase().contains("model") && 
-                   (error_string.to_lowercase().contains("not found") || 
-                    error_string.to_lowercase().contains("not available")) {
+                if error_string.to_lowercase().contains("model")
+                    && (error_string.to_lowercase().contains("not found")
+                        || error_string.to_lowercase().contains("not available"))
+                {
                     StoodError::resource_not_found(format!("Bedrock model access error: {} - Verify model is enabled in your AWS region", error_string))
                 } else {
-                    StoodError::model_error(format!("Bedrock unknown SDK error: {} - Check AWS credentials and service status", error_string))
+                    StoodError::model_error(format!(
+                        "Bedrock unknown SDK error: {} - Check AWS credentials and service status",
+                        error_string
+                    ))
                 }
             }
         }
@@ -808,19 +858,19 @@ impl From<crate::tools::ToolError> for StoodError {
         match error {
             crate::tools::ToolError::InvalidParameters { message } => {
                 StoodError::invalid_input(format!("Tool parameter validation failed: {}", message))
-            },
+            }
             crate::tools::ToolError::ToolNotFound { name } => {
                 StoodError::tool_error(format!("Tool '{}' not found", name))
-            },
+            }
             crate::tools::ToolError::DuplicateTool { name } => {
                 StoodError::configuration_error(format!("Duplicate tool name: '{}'", name))
-            },
+            }
             crate::tools::ToolError::ExecutionFailed { message } => {
                 StoodError::tool_error(format!("Tool execution failed: {}", message))
-            },
+            }
             crate::tools::ToolError::ToolNotAvailable { name } => {
                 StoodError::tool_error(format!("Tool '{}' is not available", name))
-            },
+            }
         }
     }
 }

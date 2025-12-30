@@ -14,9 +14,9 @@
 //! - Separation between ingredient lookup and cooking expertise
 //! - Quality assurance through professional chef review
 
-use stood::{agent::Agent, tool};
-use stood::llm::models::Bedrock;
 use stood::agent::callbacks::PrintingConfig;
+use stood::llm::models::Bedrock;
+use stood::{agent::Agent, tool};
 
 #[tool]
 /// Get basic nutritional information for an ingredient
@@ -69,17 +69,14 @@ async fn get_substitutions(ingredient: String) -> Result<String, String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Disable telemetry to avoid OTLP warnings in example
     std::env::set_var("OTEL_ENABLED", "false");
-    
+
     println!("👨‍🍳 Agent-Based Evaluation Demo - Recipe Development");
     println!("======================================================");
     println!("This example shows how a chef evaluator can assess recipe completeness");
     println!("while the main agent uses basic ingredient tools + culinary knowledge.\n");
 
     // Create ingredient data tools (unrelated to what chef evaluator will want)
-    let ingredient_tools = vec![
-        get_nutrition_info(),
-        get_substitutions(),
-    ];
+    let ingredient_tools = vec![get_nutrition_info(), get_substitutions()];
 
     // Create the chef evaluator agent (specialized for culinary assessment)
     let chef_evaluator = Agent::builder()
@@ -119,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             - Flavor notes and variations\n\
             - Troubleshooting common issues\n\n\
             When chef evaluation indicates missing elements, enhance the recipe \
-            using your cooking knowledge - do NOT repeat tool calls for the same ingredients."
+            using your cooking knowledge - do NOT repeat tool calls for the same ingredients.",
         )
         .tools(ingredient_tools)
         .with_agent_based_evaluation(chef_evaluator)
@@ -149,35 +146,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                       can follow successfully. The recipe should include detailed cooking \
                       instructions, timing, temperatures, and chef tips for achieving \
                       restaurant-quality results at home.";
-    
+
     println!("Task: {}\n", recipe_task);
     println!("👨‍🍳 Recipe agent will gather ingredient data while chef evaluator ensures completeness...\n");
 
     let result = recipe_agent.execute(recipe_task).await?;
-    
+
     println!("=== Final Recipe ===");
     println!("{}", result.response);
-    
+
     // Show execution metrics
     println!("\n=== Execution Metrics ===");
     println!("Duration: {:?}", result.duration);
     println!("Execution cycles: {}", result.execution.cycles);
     println!("Model calls: {}", result.execution.model_calls);
     println!("Used tools: {}", result.used_tools);
-    
+
     if result.used_tools {
         println!("Tools called: {}", result.tools_called.join(", "));
-        println!("Total tool calls: {}", result.tool_call_summary.total_attempts);
-        println!("Successful tool calls: {}", result.tool_call_summary.successful);
-        
+        println!(
+            "Total tool calls: {}",
+            result.tool_call_summary.total_attempts
+        );
+        println!(
+            "Successful tool calls: {}",
+            result.tool_call_summary.successful
+        );
+
         if result.tool_call_summary.failed > 0 {
             println!("Failed tool calls: {}", result.tool_call_summary.failed);
         }
     }
-    
+
     if let Some(tokens) = &result.execution.tokens {
-        println!("Token usage: input={}, output={}, total={}", 
-                tokens.input_tokens, tokens.output_tokens, tokens.total_tokens);
+        println!(
+            "Token usage: input={}, output={}, total={}",
+            tokens.input_tokens, tokens.output_tokens, tokens.total_tokens
+        );
     }
 
     println!("\n=== Chef-Based Evaluation Benefits Demonstrated ===");
@@ -188,7 +193,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ Knowledge Enhancement: Cooking expertise fills gaps beyond ingredient data");
 
     println!("\n🎉 Chef-based evaluation demonstration complete!");
-    println!("The recipe agent used {} execution cycles with chef oversight", result.execution.cycles);
-    
+    println!(
+        "The recipe agent used {} execution cycles with chef oversight",
+        result.execution.cycles
+    );
+
     Ok(())
 }

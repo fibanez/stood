@@ -3,9 +3,9 @@
 //! This example demonstrates how to use the #[tool] decorator to create tools
 //! and register them with the ToolRegistry for direct tool execution.
 
+use serde_json::json;
 use stood::tools::ToolRegistry;
 use stood_macros::tool;
-use serde_json::json;
 
 #[tool]
 /// Add two numbers together
@@ -37,39 +37,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test the add_numbers tool
     println!("\n🧮 Testing add_numbers tool:");
-    let result = registry.execute_tool("add_numbers", Some(json!({
-        "a": 5.5,
-        "b": 3.2
-    })), None).await?;
+    let result = registry
+        .execute_tool(
+            "add_numbers",
+            Some(json!({
+                "a": 5.5,
+                "b": 3.2
+            })),
+            None,
+        )
+        .await?;
 
     println!("Result: {}", serde_json::to_string_pretty(&result.content)?);
     assert!(result.success);
 
     // Test the greet tool without title
     println!("\n👋 Testing greet tool (no title):");
-    let result = registry.execute_tool("greet", Some(json!({
-        "name": "Alice"
-    })), None).await?;
+    let result = registry
+        .execute_tool(
+            "greet",
+            Some(json!({
+                "name": "Alice"
+            })),
+            None,
+        )
+        .await?;
 
     println!("Result: {}", serde_json::to_string_pretty(&result.content)?);
     assert!(result.success);
 
     // Test the greet tool with title
     println!("\n👋 Testing greet tool (with title):");
-    let result = registry.execute_tool("greet", Some(json!({
-        "name": "Smith",
-        "title": "Dr"
-    })), None).await?;
+    let result = registry
+        .execute_tool(
+            "greet",
+            Some(json!({
+                "name": "Smith",
+                "title": "Dr"
+            })),
+            None,
+        )
+        .await?;
 
     println!("Result: {}", serde_json::to_string_pretty(&result.content)?);
     assert!(result.success);
 
     // Test error case
     println!("\n❌ Testing error case (missing parameter):");
-    let result = registry.execute_tool("add_numbers", Some(json!({
-        "a": 5.0
-        // missing "b" parameter
-    })), None).await;
+    let result = registry
+        .execute_tool(
+            "add_numbers",
+            Some(json!({
+                "a": 5.0
+                // missing "b" parameter
+            })),
+            None,
+        )
+        .await;
 
     match result {
         Ok(_) => panic!("Expected error for missing parameter"),
@@ -82,7 +106,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for schema in schemas {
         println!("Tool: {}", schema["name"]);
         println!("Description: {}", schema["description"]);
-        println!("Schema: {}", serde_json::to_string_pretty(&schema["input_schema"])?);
+        println!(
+            "Schema: {}",
+            serde_json::to_string_pretty(&schema["input_schema"])?
+        );
         println!();
     }
 
