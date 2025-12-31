@@ -406,14 +406,21 @@ Session (Complete conversation context)
 
 Stood already has a comprehensive telemetry system (~5,009 lines across 10 files):
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `telemetry/mod.rs` | 1,260 | Main configuration, data structures |
-| `telemetry/otel.rs` | 1,416 | OpenTelemetry integration |
-| `telemetry/logging.rs` | 699 | Structured logging |
-| `telemetry/metrics/` | 948 | Metrics collection |
-| `telemetry/otlp_debug.rs` | 294 | OTLP debugging |
-| `telemetry/test_harness.rs` | 328 | Testing utilities |
+| File | Status | Purpose |
+|------|--------|---------|
+| `telemetry/mod.rs` | ACTIVE | Main configuration, data structures |
+| `telemetry/tracer.rs` | ACTIVE | Tracing implementation |
+| `telemetry/exporter.rs` | ACTIVE | CloudWatch export with smart truncation |
+| `telemetry/session.rs` | ACTIVE | Session management |
+| `telemetry/genai.rs` | ACTIVE | GenAI semantic conventions |
+| `telemetry/log_event.rs` | ACTIVE | Log event structures |
+| `telemetry/log_group.rs` | ACTIVE | Log group management |
+| `telemetry/aws_auth.rs` | ACTIVE | AWS authentication |
+| `telemetry/logging.rs` | ACTIVE | Structured logging |
+| `telemetry/otel.rs` | DELETED | Replaced by tracer.rs |
+| `telemetry/metrics/` | DELETED | Not needed for CloudWatch MVP |
+| `telemetry/otlp_debug.rs` | DELETED | No longer needed |
+| `telemetry/test_harness.rs` | DELETED | Replaced with focused tests |
 
 ### Existing GenAI Semantic Conventions
 

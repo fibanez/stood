@@ -9,23 +9,29 @@ Welcome to the Stood agent library documentation. This knowledge base provides c
 - [Architecture](architecture.md) - System design and component overview
 - [Examples](examples.md) - Code examples and tutorials
 - [Tools](tools.md) - Tool development approaches and best practices
+- [Tool Middleware](tools-middleware.md) - Intercept and modify tool execution
 - [MCP](mcp.md) - Model Context Protocol integration guide
 
 ### Advanced Features
-- [Telemetry](telemetry.md) - OpenTelemetry integration and observability
+- [Telemetry](telemetry.md) - CloudWatch Gen AI Observability integration
 - [Streaming](streaming.md) - Real-time response handling and patterns
 - [Callbacks](callbacks.md) - Real-time monitoring and event handling system
 - [Conversation Manager](conversation_manager.md) - Message history and context management
 - [Context Manager](context_manager.md) - Context window optimization
 
+### Reference
+- [CloudWatch GenAI Implementation Guide](CLOUDWATCH_GENAI_IMPLEMENTATION_GUIDE.md) - Detailed CloudWatch setup
+- [CloudWatch GenAI Observability Knowledge](CLOUDWATCH_GENAI_OBSERVABILITY_KNOWLEDGE.md) - Background knowledge
+
 ## Library Overview
 
 Stood is an AWS Bedrock-focused agent framework that provides:
 
-* *Native AWS Integration* - Optimized for Claude 3/4 and Nova models
+* *Native AWS Integration* - Optimized for Claude 4.5 and Nova models
 * *Type-Safe Tools* - Compile-time validation of tool parameters
 * *Agentic Execution* - Multi-step reasoning with automatic tool orchestration
-* *Production Ready* - Comprehensive error handling and observability
+* *Tool Middleware* - Intercept and control tool execution
+* *Production Ready* - Comprehensive error handling and CloudWatch observability
 
 ## Architecture Summary
 
@@ -47,10 +53,10 @@ Stood is an AWS Bedrock-focused agent framework that provides:
                      │ │Built-in │ │ Custom  │ │
                      │ │ Tools   │ │ Tools   │ │
                      │ └─────────┘ └─────────┘ │
-                     │ ┌─────────┐             │
-                     │ │   MCP   │             │
-                     │ │ Tools   │             │
-                     │ └─────────┘             │
+                     │ ┌─────────┐ ┌─────────┐ │
+                     │ │   MCP   │ │Middleware│ │
+                     │ │ Tools   │ │         │ │
+                     │ └─────────┘ └─────────┘ │
                      └─────────────────────────┘
 ```
 
@@ -65,18 +71,20 @@ Core agent implementation with conversation management:
 
 📚 [View Agent Module API Documentation](../src/agent/mod.rs)
 
-### Tools Module  
+### Tools Module
 Unified tool system with compile-time validation:
 - `Tool` trait - Primary tool interface
 - `ToolRegistry` - Tool management and execution
 - `#[tool]` macro - Automatic tool generation
+- `ToolMiddleware` - Intercept tool execution
 - MCP integration for external tools
 
 📚 [View Tools Module API Documentation](../src/tools/mod.rs)
 
 ### Bedrock Provider
 AWS Bedrock client with enterprise features:
-- Native Claude 3/4 and Nova model support
+- Native Claude 4.5 and Nova model support
+- Model aliases for automatic upgrades (SonnetLatest, HaikuLatest, OpusLatest)
 - Streaming responses and token management
 - Comprehensive retry logic and error handling
 - Performance optimization and connection pooling
@@ -86,7 +94,7 @@ AWS Bedrock client with enterprise features:
 ### MCP Module
 Model Context Protocol integration for external tools:
 - MCP client and server implementations
-- WebSocket and stdio transport support  
+- WebSocket and stdio transport support
 - Automatic tool discovery and execution
 - Comprehensive error handling and recovery
 
@@ -102,11 +110,23 @@ Production-grade performance optimization for high-throughput deployments:
 📚 [View Performance Module API Documentation](../src/performance/mod.rs)
 
 ### Telemetry Module
-Observability for AI agent performance monitoring:
+CloudWatch Gen AI Observability for AI agent monitoring:
+- CloudWatch integration with OpenTelemetry semantic conventions
+- Smart truncation for large prompts/responses (auto-handles 1MB limit)
+- Batch splitting for high-volume exports
 - File logging with `LoggingConfig` and `PerformanceTracer`
 - Metrics collection with `EventLoopMetrics`, `CycleMetrics`, `TokenUsage`
-- GenAI semantic conventions for OpenTelemetry compatibility
-- CloudWatch Gen AI integration under active development
 
 📚 [View Telemetry Module API Documentation](../src/telemetry/mod.rs)
 
+## Recent Changes
+
+### Version 0.1.1
+
+- **CloudWatch Gen AI Observability** - Production-ready integration with AWS CloudWatch GenAI dashboards
+- **Smart Truncation** - Automatic handling of large prompts/responses to stay within CloudWatch limits
+- **Model Aliases** - `SonnetLatest`, `HaikuLatest`, `OpusLatest` for automatic model upgrades
+- **Nova 2 Models** - Support for NovaPremier, Nova2Lite, Nova2Pro with 1M context windows
+- **Tool Middleware** - Intercept and control tool execution with `ToolMiddleware` trait
+- **Cancellation Support** - External cancellation for long-running operations
+- **AWS Credentials** - Programmatic credential configuration via `with_credentials()`

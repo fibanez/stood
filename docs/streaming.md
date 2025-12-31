@@ -255,9 +255,68 @@ if streaming_message.is_complete() {
 - Coordinate with conversation management
 - Maintain tool execution context across streams
 
+## Cancellation Support
+
+The streaming system integrates with Stood's cancellation mechanism for stopping long-running operations:
+
+```rust
+use stood::agent::Agent;
+use stood::llm::models::Bedrock;
+use tokio::time::{sleep, Duration};
+
+// Build agent with cancellation and streaming
+let mut agent = Agent::builder()
+    .model(Bedrock::ClaudeHaiku45)
+    .with_streaming(true)
+    .with_cancellation()
+    .build()
+    .await?;
+
+// Get cancellation token
+let token = agent.cancellation_token().expect("Cancellation enabled");
+
+// Cancel from another task
+let cancel_token = token.clone();
+tokio::spawn(async move {
+    sleep(Duration::from_secs(30)).await;
+    cancel_token.cancel();
+});
+
+// Execute with cancellation support
+match agent.execute("Generate a long report...").await {
+    Ok(result) => println!("Completed: {}", result.response),
+    Err(e) if e.to_string().contains("cancelled") => {
+        println!("Streaming was cancelled");
+    }
+    Err(e) => return Err(e.into()),
+}
+```
+
+### Cancellation Behavior
+
+When cancellation is triggered during streaming:
+- The current stream is immediately terminated
+- Partial content received is preserved
+- Pending tool executions receive synthetic "cancelled" results
+- The agent returns a cancellation error
+
+## GUI Integration Example
+
+For building streaming UIs with real-time updates, see the enterprise prompt builder example:
+
+```bash
+cargo run --example 024_enterprise_prompt_builder
+```
+
+This example demonstrates:
+- Real-time content streaming to egui panels
+- Tool execution status indicators
+- Cancellation button integration
+- Token usage display during streaming
+
 ## Related Documentation
 
-**architecture** - Real-time processing architecture and design
-**patterns** - Streaming application patterns and best practices  
-**troubleshooting** - Stream debugging and monitoring techniques
-**performance** - Streaming performance optimization strategies
+- [API](api.md) - Agent builder cancellation configuration
+- [Callbacks](callbacks.md) - Event handling for streaming updates
+- [Architecture](architecture.md) - Real-time processing architecture
+- [Source Code](../src/streaming/mod.rs) - Streaming module implementation

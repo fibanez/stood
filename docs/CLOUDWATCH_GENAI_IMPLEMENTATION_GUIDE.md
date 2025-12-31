@@ -60,16 +60,15 @@ This implementation focuses **exclusively on CloudWatch Gen AI Observability**. 
 
 We are **removing and replacing** the existing telemetry implementation, not extending it. The current ~5,000 lines of telemetry code will be replaced with a focused CloudWatch-only implementation.
 
-### Code to DELETE
+### Code DELETED (Completed)
 
-| File/Module | Lines | Reason |
-|-------------|-------|--------|
-| `src/telemetry/otel.rs` | ~1,416 | Replaced by new tracer.rs |
-| `src/telemetry/metrics/` | ~948 | Not needed for CloudWatch MVP |
-| `src/telemetry/otlp_debug.rs` | ~294 | No longer needed |
-| `src/telemetry/test_harness.rs` | ~328 | Replace with focused tests |
-| Most of `src/telemetry/mod.rs` | ~1,000+ | Rewrite with simplified config |
-| Old semantic convention constants | - | Replaced by genai.rs |
+| File/Module | Status | Notes |
+|-------------|--------|-------|
+| `src/telemetry/otel.rs` | DELETED | Replaced by tracer.rs |
+| `src/telemetry/metrics/` | DELETED | Not needed for CloudWatch MVP |
+| `src/telemetry/otlp_debug.rs` | DELETED | No longer needed |
+| `src/telemetry/test_harness.rs` | DELETED | Replaced with focused tests |
+| Old semantic convention constants | DELETED | Replaced by genai.rs |
 
 ### Code to KEEP
 
@@ -269,13 +268,13 @@ CloudWatch Gen AI Observability is available in:
 
 | Component | Action |
 |-----------|--------|
-| `TelemetryConfig` struct | Replace with enum |
-| `StoodTracer` (old) | Replace entirely |
-| All old span methods | New GenAI-focused API |
-| Metrics collection | Remove (not needed for MVP) |
-| OTEL endpoint auto-discovery | Remove (CloudWatch only) |
-| `otlp_debug.rs` | Delete |
-| `test_harness.rs` | Delete and rewrite |
+| `TelemetryConfig` struct | Replaced with enum (DONE) |
+| `StoodTracer` (old) | Replaced entirely (DONE) |
+| All old span methods | New GenAI-focused API (DONE) |
+| Metrics collection | Removed (DONE) |
+| OTEL endpoint auto-discovery | Removed (DONE) |
+| `otlp_debug.rs` | Deleted (DONE) |
+| `test_harness.rs` | Deleted and replaced (DONE) |
 
 ### What Must NOT Break (Core Stood)
 
@@ -319,25 +318,23 @@ CloudWatch Gen AI Observability is available in:
 
 ---
 
-### MILESTONE 1: Delete Old, Create Foundation
+### MILESTONE 1: Delete Old, Create Foundation (COMPLETED)
 
 **Goal:** Remove old telemetry code and create new foundation
 
 **Deliverables:**
-- [ ] Delete `src/telemetry/otel.rs`
-- [ ] Delete `src/telemetry/metrics/`
-- [ ] Delete `src/telemetry/otlp_debug.rs`
-- [ ] Delete `src/telemetry/test_harness.rs`
-- [ ] Gut `src/telemetry/mod.rs` (keep logging imports)
-- [ ] Create `TelemetryConfig` enum (Disabled, CloudWatch)
-- [ ] Create `SpanExporter` trait
-- [ ] Add AWS SDK dependencies to Cargo.toml
-- [ ] Verify `cargo build` works
-- [ ] Verify all core safety tests still pass
+- [x] Delete `src/telemetry/otel.rs`
+- [x] Delete `src/telemetry/metrics/`
+- [x] Delete `src/telemetry/otlp_debug.rs`
+- [x] Delete `src/telemetry/test_harness.rs`
+- [x] Gut `src/telemetry/mod.rs` (keep logging imports)
+- [x] Create `TelemetryConfig` enum (Disabled, CloudWatch)
+- [x] Create `SpanExporter` trait
+- [x] Add AWS SDK dependencies to Cargo.toml
+- [x] Verify `cargo build` works
+- [x] Verify all core safety tests still pass
 
-**Success Criteria:**
-- Clean compile
-- Core tests pass
+**Status:** COMPLETED
 - Old code removed
 
 ---

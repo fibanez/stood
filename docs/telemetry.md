@@ -1,14 +1,16 @@
 # Telemetry and Observability
 
-Stood provides observability for AI agent performance monitoring, including file logging, performance tracing, and metrics collection.
+Stood provides observability for AI agent performance monitoring, including CloudWatch Gen AI integration, file logging, performance tracing, and metrics collection.
 
-## Current Status
+## Overview
 
 The telemetry module supports:
 
-- **File logging** - Production-ready via `LoggingConfig` and `PerformanceTracer`
+- **CloudWatch Gen AI Observability** - Production-ready integration with AWS CloudWatch for GenAI dashboards
+- **File logging** - Via `LoggingConfig` and `PerformanceTracer`
 - **Metrics types** - `EventLoopMetrics`, `CycleMetrics`, `TokenUsage` for tracking
-- **OpenTelemetry integration** - Under active development for CloudWatch Gen AI
+- **Smart truncation** - Automatic handling of large prompts/responses to stay within CloudWatch limits
+- **Batch splitting** - Automatic splitting of log batches exceeding 1MB
 
 ## Quick Start
 
@@ -26,6 +28,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build().await?;
 
     let result = agent.execute("Hello, world").await?;
+    println!("Response: {}", result.response);
+    Ok(())
+}
+```
+
+### With CloudWatch Gen AI Observability
+
+```rust
+use stood::agent::Agent;
+use stood::telemetry::TelemetryConfig;
+use stood::llm::models::Bedrock;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Configure CloudWatch telemetry
+    let telemetry_config = TelemetryConfig::cloudwatch("us-east-1")
+        .with_service_name("my-agent-service")
+        .with_agent_id("my-agent-001")
+        .with_content_capture(true);  // Enable content capture for evaluations
+
+    let mut agent = Agent::builder()
+        .name("My Agent")
+        .model(Bedrock::ClaudeHaiku45)
+        .with_telemetry(telemetry_config)
+        .build().await?;
+
+    let result = agent.execute("What is 2+2?").await?;
     println!("Response: {}", result.response);
     Ok(())
 }
@@ -56,37 +85,127 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### With TelemetryConfig
+## CloudWatch Gen AI Observability
+
+Stood integrates with AWS CloudWatch Gen AI Observability for production monitoring of AI agent workloads.
+
+### Configuration Options
 
 ```rust
-use stood::agent::Agent;
-use stood::telemetry::TelemetryConfig;
-use stood::llm::models::Bedrock;
+use stood::telemetry::{TelemetryConfig, AwsCredentialSource};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = TelemetryConfig::default()
-        .with_enabled(true)
-        .with_service_name("my-agent");
+// Basic CloudWatch configuration
+let config = TelemetryConfig::cloudwatch("us-east-1");
 
-    let mut agent = Agent::builder()
-        .model(Bedrock::ClaudeHaiku45)
-        .with_telemetry(config)
-        .build().await?;
+// With custom service name and agent ID
+let config = TelemetryConfig::cloudwatch("us-east-1")
+    .with_service_name("qanda-service")
+    .with_agent_id("qanda-agent-001");
 
-    Ok(())
-}
+// With custom credentials
+let config = TelemetryConfig::cloudwatch_with_credentials(
+    "us-east-1",
+    AwsCredentialSource::Profile("production".to_string())
+);
+
+// Enable content capture for evaluations
+let config = TelemetryConfig::cloudwatch("us-east-1")
+    .with_content_capture(true);
+
+// From environment variables
+let config = TelemetryConfig::from_env();
 ```
+
+### Key Identifiers
+
+Two identifiers are important for CloudWatch integration:
+
+| Identifier | Purpose | Example |
+|------------|---------|---------|
+| `service_name` | Your application name (OpenTelemetry service.name) | `qanda-service` |
+| `agent_id` | Unique agent identifier for log group naming | `qanda-agent-001` |
+
+The agent_id is used to construct the CloudWatch Log Group path:
+```
+/aws/bedrock-agentcore/runtimes/{agent_id}
+```
+
+### GenAI Semantic Conventions
+
+Stood follows OpenTelemetry GenAI semantic conventions:
+
+| Span Name | Operation | Key Attributes |
+|-----------|-----------|----------------|
+| `invoke_agent {name}` | Agent invocation | `gen_ai.agent.name`, `gen_ai.usage.*` |
+| `chat {model}` | Model call | `gen_ai.request.model`, `gen_ai.provider.name` |
+| `execute_tool {name}` | Tool execution | `gen_ai.tool.name`, `gen_ai.tool.type` |
+
+### AWS Prerequisites
+
+1. Configure AWS credentials (environment, profile, or IAM role)
+2. Enable Transaction Search in CloudWatch Console
+3. Set trace destination:
+   ```bash
+   aws xray update-trace-segment-destination --destination CloudWatchLogs
+   ```
+4. Attach required IAM permissions:
+   ```json
+   {
+     "Effect": "Allow",
+     "Action": [
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents",
+       "logs:DescribeLogGroups",
+       "logs:DescribeLogStreams",
+       "xray:PutTraceSegments",
+       "xray:PutTelemetryRecords"
+     ],
+     "Resource": "*"
+   }
+   ```
+
+## Smart Truncation
+
+Large prompts and responses are automatically truncated to stay within CloudWatch's 1MB batch limit. The truncation system:
+
+- **Preserves context** - Keeps the beginning (system prompt, user query) and end (final response) of content
+- **UTF-8 safe** - Truncates at valid character boundaries to avoid invalid UTF-8 sequences
+- **Transparent** - Inserts a marker showing how much content was removed
+
+### Truncation Limits
+
+| Limit | Value | Description |
+|-------|-------|-------------|
+| `MAX_CONTENT_FIELD_SIZE` | 32KB | Maximum size per content field before truncation |
+| `TRUNCATION_HEAD_SIZE` | ~14KB | Content preserved at the start |
+| `TRUNCATION_TAIL_SIZE` | ~14KB | Content preserved at the end |
+| `MAX_CLOUDWATCH_BATCH_SIZE` | 950KB | Maximum batch size (1MB limit with headroom) |
+
+### Truncation Marker
+
+When content is truncated, a marker is inserted:
+```
+[... TRUNCATED 45230 bytes (44.2KB) ...]
+```
+
+This preserves the ability to evaluate input requirements and output quality while staying within CloudWatch limits.
 
 ## Environment Variables
 
 ```bash
-# Core Configuration
-OTEL_ENABLED=false                 # Enable/disable telemetry (default: false)
-OTEL_SERVICE_NAME=stood-agent      # Service name for identification
+# CloudWatch Configuration
+STOOD_CLOUDWATCH_ENABLED=true         # Enable CloudWatch export
+AWS_REGION=us-east-1                  # AWS region
+OTEL_SERVICE_NAME=stood-agent         # Service name in traces
+STOOD_AGENT_ID=my-agent-001           # Agent ID for log group naming
+STOOD_GENAI_CONTENT_CAPTURE=true      # Capture message content
+
+# Legacy Variables (still supported)
+OTEL_ENABLED=true                     # Enable telemetry
 
 # Logging
-RUST_LOG=stood=info               # Log level filter
+RUST_LOG=stood=info                   # Log level filter
 ```
 
 ## Available Types
@@ -98,10 +217,20 @@ Configuration for telemetry and observability:
 ```rust
 use stood::telemetry::{TelemetryConfig, LogLevel};
 
-let config = TelemetryConfig::default()
-    .with_enabled(true)
-    .with_service_name("my-agent")
+// Disabled (default)
+let config = TelemetryConfig::disabled();
+assert!(!config.is_enabled());
+
+// CloudWatch with region
+let config = TelemetryConfig::cloudwatch("us-east-1");
+assert!(config.is_enabled());
+
+// Full configuration
+let config = TelemetryConfig::cloudwatch("us-east-1")
+    .with_service_name("my-service")
     .with_service_version("1.0.0")
+    .with_agent_id("my-agent-001")
+    .with_content_capture(false)
     .with_log_level(LogLevel::DEBUG);
 
 // From environment variables
@@ -233,6 +362,18 @@ STOOD_CYCLE_ID                   // "stood.cycle.id"
 
 ## Examples
 
+### 025_cloudwatch_observability
+
+Demonstrates CloudWatch Gen AI integration:
+
+```bash
+# With telemetry disabled (default)
+cargo run --example 025_cloudwatch_observability
+
+# With telemetry enabled
+STOOD_CLOUDWATCH_ENABLED=true cargo run --example 025_cloudwatch_observability
+```
+
 ### 009_logging_demo
 
 Demonstrates file logging and performance tracing:
@@ -250,9 +391,23 @@ Several telemetry examples are available in `examples/023_telemetry/`:
 | `simple_telemetry_test` | Basic telemetry initialization |
 | `smart_telemetry_test` | Auto-detection and fallback behavior |
 | `metrics_test` | Metrics collection with agent |
+| `performance_benchmark` | Performance benchmarking |
+
+## Testing CloudWatch Integration
+
+Integration tests verify real AWS connectivity:
+
+```bash
+# Run CloudWatch integration tests (requires AWS credentials)
+cargo test --test telemetry_cloudwatch_integration
+
+# Run core safety tests
+cargo test --test core_safety_telemetry_tests
+```
 
 ## See Also
 
 - [Architecture](architecture.md) - Overall system design
 - [Examples](examples.md) - Usage examples and tutorials
+- [CLOUDWATCH_GENAI_IMPLEMENTATION_GUIDE.md](CLOUDWATCH_GENAI_IMPLEMENTATION_GUIDE.md) - Detailed implementation guide
 - [Source Code](../src/telemetry/mod.rs) - Telemetry module implementation

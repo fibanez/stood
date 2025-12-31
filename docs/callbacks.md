@@ -267,4 +267,4 @@ impl CallbackHandler for MetricsHandler {
 
 - [Examples](examples.md) - Practical callback examples
 - [Streaming](streaming.md) - Stream integration with callback patterns
-- [Patterns](patterns.md) - Advanced callback implementation patterns
+- [Source Code](../src/agent/callbacks/mod.rs) - Callback module implementation
