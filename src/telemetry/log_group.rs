@@ -139,14 +139,20 @@ impl LogGroupManager {
     /// 3. IAM role (for EC2/ECS/Lambda)
     pub async fn new(region: impl Into<String>) -> Result<Self, LogGroupError> {
         let region = region.into();
+        crate::perf_checkpoint!("log_group_manager.new.start", &region);
 
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(aws_types::region::Region::new(region.clone()))
-            .load()
-            .await;
+        let config = crate::perf_timed!("log_group_manager.aws_config_load", {
+            aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .region(aws_types::region::Region::new(region.clone()))
+                .load()
+                .await
+        });
 
-        let client = CloudWatchLogsClient::new(&config);
+        let client = crate::perf_timed!("log_group_manager.client_new", {
+            CloudWatchLogsClient::new(&config)
+        });
 
+        crate::perf_checkpoint!("log_group_manager.new.end");
         Ok(Self {
             client,
             region,
@@ -184,11 +190,19 @@ impl LogGroupManager {
     ///
     /// Returns `Ok(true)` if the log group was created, `Ok(false)` if it already existed.
     pub async fn ensure_exists(&self, config: &AgentLogGroup) -> Result<bool, LogGroupError> {
-        let created = self.ensure_log_group_exists(&config.log_group_name).await?;
-        self.ensure_log_stream_exists(&config.log_group_name, &config.log_stream_name)
-            .await?;
+        crate::perf_checkpoint!("log_group.ensure_exists.start", &config.log_group_name);
+
+        let created = crate::perf_timed!("log_group.ensure_log_group", {
+            self.ensure_log_group_exists(&config.log_group_name).await
+        })?;
+
+        crate::perf_timed!("log_group.ensure_log_stream", {
+            self.ensure_log_stream_exists(&config.log_group_name, &config.log_stream_name)
+                .await
+        })?;
 
         self.initialized.store(true, Ordering::Relaxed);
+        crate::perf_checkpoint!("log_group.ensure_exists.end", if created { "created" } else { "existed" });
         Ok(created)
     }
 
@@ -236,14 +250,20 @@ impl LogGroupManager {
 
     /// Check if a log group exists
     async fn log_group_exists(&self, log_group_name: &str) -> Result<bool, LogGroupError> {
-        let result = self
-            .client
-            .describe_log_groups()
-            .log_group_name_prefix(log_group_name)
-            .limit(1)
-            .send()
-            .await
-            .map_err(|e| LogGroupError::DescribeFailed(e.to_string()))?;
+        crate::perf_checkpoint!("log_group.describe_log_groups.start", log_group_name);
+        let result = crate::perf_timed!("log_group.describe_log_groups.api_call", {
+            self.client
+                .describe_log_groups()
+                .log_group_name_prefix(log_group_name)
+                .limit(1)
+                .send()
+                .await
+        })
+        .map_err(|e| {
+            crate::perf_checkpoint!("log_group.describe_log_groups.error", &e.to_string());
+            LogGroupError::DescribeFailed(e.to_string())
+        })?;
+        crate::perf_checkpoint!("log_group.describe_log_groups.end");
 
         // Check if any of the returned log groups exactly match
         for lg in result.log_groups() {
@@ -323,15 +343,21 @@ impl LogGroupManager {
         log_group_name: &str,
         log_stream_name: &str,
     ) -> Result<bool, LogGroupError> {
-        let result = self
-            .client
-            .describe_log_streams()
-            .log_group_name(log_group_name)
-            .log_stream_name_prefix(log_stream_name)
-            .limit(1)
-            .send()
-            .await
-            .map_err(|e| LogGroupError::DescribeFailed(e.to_string()))?;
+        crate::perf_checkpoint!("log_group.describe_log_streams.start", log_stream_name);
+        let result = crate::perf_timed!("log_group.describe_log_streams.api_call", {
+            self.client
+                .describe_log_streams()
+                .log_group_name(log_group_name)
+                .log_stream_name_prefix(log_stream_name)
+                .limit(1)
+                .send()
+                .await
+        })
+        .map_err(|e| {
+            crate::perf_checkpoint!("log_group.describe_log_streams.error", &e.to_string());
+            LogGroupError::DescribeFailed(e.to_string())
+        })?;
+        crate::perf_checkpoint!("log_group.describe_log_streams.end");
 
         // Check if any of the returned log streams exactly match
         for ls in result.log_streams() {

@@ -191,13 +191,19 @@ impl ProviderRegistry {
         &self,
         provider_type: ProviderType,
     ) -> Result<Arc<dyn LlmProvider>, LlmError> {
+        crate::perf_checkpoint!("stood.registry.get_provider.start");
+
         // Check if provider is already instantiated
         {
-            let providers = self.providers.read().await;
+            let providers = crate::perf_timed!("stood.registry.cache_read", {
+                self.providers.read().await
+            });
             if let Some(provider) = providers.get(&provider_type) {
+                crate::perf_checkpoint!("stood.registry.cache_hit");
                 return Ok(Arc::clone(provider));
             }
         }
+        crate::perf_checkpoint!("stood.registry.cache_miss");
 
         // Provider not found, need to create it
         let configs = self.configs.read().await;
@@ -215,19 +221,21 @@ impl ProviderRegistry {
                     credentials,
                 },
             ) => {
-                let bedrock_provider = if let Some(creds) = credentials {
-                    // Use custom credentials
-                    BedrockProvider::with_credentials(
-                        region.clone(),
-                        creds.access_key.clone(),
-                        creds.secret_key.clone(),
-                        creds.session_token.clone(),
-                    )
-                    .await
-                } else {
-                    // Use default credential chain
-                    BedrockProvider::new(region.clone()).await
-                }
+                let bedrock_provider = crate::perf_timed!("stood.registry.create_bedrock_provider", {
+                    if let Some(creds) = credentials {
+                        // Use custom credentials
+                        BedrockProvider::with_credentials(
+                            region.clone(),
+                            creds.access_key.clone(),
+                            creds.secret_key.clone(),
+                            creds.session_token.clone(),
+                        )
+                        .await
+                    } else {
+                        // Use default credential chain
+                        BedrockProvider::new(region.clone()).await
+                    }
+                })
                 .map_err(|e| LlmError::ProviderError {
                     provider: provider_type,
                     message: format!("Failed to create Bedrock provider: {}", e),
@@ -323,9 +331,12 @@ impl ProviderRegistry {
         };
 
         // Cache the provider for future use
-        let mut providers = self.providers.write().await;
-        providers.insert(provider_type, Arc::clone(&provider));
+        crate::perf_timed!("stood.registry.cache_write", {
+            let mut providers = self.providers.write().await;
+            providers.insert(provider_type, Arc::clone(&provider));
+        });
 
+        crate::perf_checkpoint!("stood.registry.get_provider.end");
         Ok(provider)
     }
 

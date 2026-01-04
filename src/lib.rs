@@ -156,6 +156,41 @@ pub mod tools;
 pub mod types;
 pub mod utils;
 
+#[cfg(feature = "perf-timing")]
+pub mod perf_timing;
+
+// Stub macros when perf-timing feature is disabled
+// These compile to no-ops for zero overhead
+
+/// Time a block of code (no-op when perf-timing disabled)
+#[cfg(not(feature = "perf-timing"))]
+#[macro_export]
+macro_rules! perf_timed {
+    ($name:expr, $expr:expr) => {
+        $expr
+    };
+}
+
+/// Mark a checkpoint (no-op when perf-timing disabled)
+#[cfg(not(feature = "perf-timing"))]
+#[macro_export]
+macro_rules! perf_checkpoint {
+    ($name:expr) => {};
+    ($name:expr, $context:expr) => {};
+}
+
+/// Create a timing guard (no-op when perf-timing disabled)
+#[cfg(not(feature = "perf-timing"))]
+#[macro_export]
+macro_rules! perf_guard {
+    ($name:expr) => {
+        ()
+    };
+    ($name:expr, $context:expr) => {
+        ()
+    };
+}
+
 pub use error::StoodError;
 pub use types::*;
 

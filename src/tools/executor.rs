@@ -491,12 +491,27 @@ impl ToolExecutor {
     ) -> (ToolResult, Option<ExecutionMetrics>) {
         let started_at = Instant::now();
 
+        // Create a truncated input preview for logging (first 100 chars)
+        let input_preview = {
+            let input_str = tool_use.input.to_string();
+            if input_str.len() > 100 {
+                format!("{}...", &input_str[..100])
+            } else {
+                input_str
+            }
+        };
+        crate::perf_checkpoint!("stood.tool.execute.start", &format!("tool={}, input={}", tool_use.name, input_preview));
+        let _tool_guard = crate::perf_guard!("stood.tool.execute", &format!("tool={}", tool_use.name));
+
         // Acquire semaphore permit for concurrency control
-        let _permit = match self.semaphore.acquire().await {
+        let _permit = match crate::perf_timed!("stood.tool.semaphore_acquire", {
+            self.semaphore.acquire().await
+        }) {
             Ok(permit) => permit,
             Err(_) => {
                 // Semaphore was closed (shouldn't happen in normal operation)
                 let result = ToolResult::error("Tool execution system unavailable".to_string());
+                crate::perf_checkpoint!("stood.tool.execute.error", &format!("tool={}, error=semaphore_closed", tool_use.name));
 
                 let metrics = if self.config.capture_metrics {
                     Some(ExecutionMetrics {
@@ -518,6 +533,7 @@ impl ToolExecutor {
             if let Err(validation_error) = self.validate_tool_input(&tool, &tool_use.input) {
                 let result =
                     ToolResult::error(format!("Input validation failed: {}", validation_error));
+                crate::perf_checkpoint!("stood.tool.execute.validation_error", &format!("tool={}", tool_use.name));
 
                 let metrics = if self.config.capture_metrics {
                     Some(ExecutionMetrics {
@@ -535,21 +551,35 @@ impl ToolExecutor {
         }
 
         // Execute the tool with timeout
-        let execution_result = timeout(
-            self.config.execution_timeout,
-            tool.execute(Some(tool_use.input.clone()), agent_context),
-        )
-        .await;
+        crate::perf_checkpoint!("stood.tool.execute.invoke.start", &format!("tool={}", tool_use.name));
+        let execution_result = crate::perf_timed!("stood.tool.invoke", {
+            timeout(
+                self.config.execution_timeout,
+                tool.execute(Some(tool_use.input.clone()), agent_context),
+            )
+            .await
+        });
 
         let (result, success) = match execution_result {
             Ok(Ok(tool_result)) => {
                 // Successful execution - convert new ToolResult to legacy format
                 let success = tool_result.success;
+                // Create a truncated output preview for logging
+                let output_preview = {
+                    let output_str = tool_result.content.to_string();
+                    if output_str.len() > 100 {
+                        format!("{}...", &output_str[..100])
+                    } else {
+                        output_str
+                    }
+                };
+                crate::perf_checkpoint!("stood.tool.execute.success", &format!("tool={}, output={}", tool_use.name, output_preview));
                 (tool_result, success)
             }
             Ok(Err(tool_error)) => {
                 // Tool execution failed
                 let result = ToolResult::error(format!("Tool execution failed: {}", tool_error));
+                crate::perf_checkpoint!("stood.tool.execute.failed", &format!("tool={}, error={}", tool_use.name, tool_error));
                 (result, false)
             }
             Err(_) => {
@@ -558,6 +588,7 @@ impl ToolExecutor {
                     "Tool execution timed out after {} seconds",
                     self.config.execution_timeout.as_secs()
                 ));
+                crate::perf_checkpoint!("stood.tool.execute.timeout", &format!("tool={}, timeout_secs={}", tool_use.name, self.config.execution_timeout.as_secs()));
                 (result, false)
             }
         };

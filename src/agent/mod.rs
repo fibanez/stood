@@ -513,27 +513,43 @@ impl Agent {
         agent_id: Option<String>,
         agent_name: Option<String>,
     ) -> Result<Self> {
-        let mut conversation = ConversationManager::new();
+        crate::perf_checkpoint!("stood.build_internal.start");
+        let _build_internal_guard = crate::perf_guard!("stood.build_internal");
+
+        let mut conversation = crate::perf_timed!("stood.build_internal.conversation_manager", {
+            ConversationManager::new()
+        });
 
         // Set system prompt from config if provided
         conversation.set_system_prompt(config.system_prompt.clone());
 
         // Initialize tool registry and register tools
-        let tool_registry = ToolRegistry::new();
-        for tool in tools {
-            tool_registry.register_tool(tool).await.map_err(|e| {
-                StoodError::configuration_error(format!("Failed to register tool: {}", e))
-            })?;
-        }
+        let tool_registry = crate::perf_timed!("stood.build_internal.tool_registry_new", {
+            ToolRegistry::new()
+        });
+        let tool_count = tools.len();
+        crate::perf_timed!("stood.build_internal.register_tools", {
+            for tool in tools {
+                tool_registry.register_tool(tool).await.map_err(|e| {
+                    StoodError::configuration_error(format!("Failed to register tool: {}", e))
+                })?;
+            }
+            Ok::<(), StoodError>(())
+        })?;
+        crate::perf_checkpoint!("stood.build_internal.tools_registered", &format!("count={}", tool_count));
 
         // Register middleware
-        for middleware in middlewares {
-            tool_registry.add_middleware(middleware).await;
-        }
+        let middleware_count = middlewares.len();
+        crate::perf_timed!("stood.build_internal.register_middleware", {
+            for middleware in middlewares {
+                tool_registry.add_middleware(middleware).await;
+            }
+        });
+        crate::perf_checkpoint!("stood.build_internal.middleware_registered", &format!("count={}", middleware_count));
 
         // Initialize smart telemetry with auto-detection
-
-        let tracer = {
+        crate::perf_checkpoint!("stood.build_internal.telemetry_init.start");
+        let tracer = crate::perf_timed!("stood.build_internal.telemetry_init", {
             // Use provided config or auto-detect with proper log level
             let mut tel_config = config.telemetry_config.clone().unwrap_or_default();
 
@@ -563,8 +579,10 @@ impl Agent {
                     None
                 }
             }
-        };
+        });
+        crate::perf_checkpoint!("stood.build_internal.telemetry_init.end");
 
+        crate::perf_checkpoint!("stood.build_internal.end");
         Ok(Self {
             agent_id: agent_id
                 .or_else(|| config.agent_id.clone())
@@ -1891,6 +1909,9 @@ impl AgentBuilder {
     /// - Tool registration fails
     /// - Bedrock client creation fails
     pub async fn build(mut self) -> Result<Agent> {
+        crate::perf_checkpoint!("stood.agent_builder.build.start");
+        let _build_guard = crate::perf_guard!("stood.agent_builder.build");
+
         // Use provided model or create default
         let model = self.model.unwrap_or_else(|| {
             // Default to Claude Haiku 4.5
@@ -1908,6 +1929,7 @@ impl AgentBuilder {
 
         // Configure custom credentials for Bedrock if provided
         if provider_type == ProviderType::Bedrock && self.aws_credentials.is_some() {
+            crate::perf_checkpoint!("stood.agent_builder.configure_bedrock_creds.start");
             use crate::llm::registry::{BedrockCredentials, ProviderConfig};
 
             let aws_creds = self.aws_credentials.as_ref().unwrap();
@@ -1922,9 +1944,11 @@ impl AgentBuilder {
                 credentials: Some(bedrock_creds),
             };
 
-            PROVIDER_REGISTRY
-                .add_config(ProviderType::Bedrock, bedrock_config)
-                .await;
+            crate::perf_timed!("stood.agent_builder.add_bedrock_config", {
+                PROVIDER_REGISTRY
+                    .add_config(ProviderType::Bedrock, bedrock_config)
+                    .await
+            });
         }
 
         // For LM Studio providers, configure retry settings if specified
@@ -1947,52 +1971,64 @@ impl AgentBuilder {
         }
 
         // Check if provider is configured, with timeout
-        let is_configured = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            crate::llm::registry::PROVIDER_REGISTRY.is_configured(provider_type),
-        )
-        .await
-        .unwrap_or(false);
+        let is_configured = crate::perf_timed!("stood.agent_builder.is_configured_check", {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                crate::llm::registry::PROVIDER_REGISTRY.is_configured(provider_type),
+            )
+            .await
+            .unwrap_or(false)
+        });
 
         if !is_configured {
             // Auto-configure with timeout
-            tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                crate::llm::registry::ProviderRegistry::configure(),
-            )
-            .await
-            .map_err(|_| crate::StoodError::ConfigurationError {
-                message: "Provider registry configuration timed out".to_string(),
-            })?
-            .map_err(|e| crate::StoodError::ConfigurationError {
-                message: format!("Failed to auto-configure provider registry: {}", e),
+            crate::perf_timed!("stood.agent_builder.auto_configure", {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    crate::llm::registry::ProviderRegistry::configure(),
+                )
+                .await
+                .map_err(|_| crate::StoodError::ConfigurationError {
+                    message: "Provider registry configuration timed out".to_string(),
+                })?
+                .map_err(|e| crate::StoodError::ConfigurationError {
+                    message: format!("Failed to auto-configure provider registry: {}", e),
+                })
             })?;
         }
 
-        // Get provider from registry with timeout
-        let provider = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            PROVIDER_REGISTRY.get_provider(provider_type),
-        )
-        .await
-        .map_err(|_| crate::StoodError::ConfigurationError {
-            message: "Provider creation timed out".to_string(),
-        })?
-        .map_err(|e| crate::StoodError::ConfigurationError {
-            message: format!("Failed to get provider: {}", e),
+        // Get provider from registry with timeout (THIS IS THE MAIN BOTTLENECK)
+        let provider = crate::perf_timed!("stood.agent_builder.get_provider", {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                PROVIDER_REGISTRY.get_provider(provider_type),
+            )
+            .await
+            .map_err(|_| crate::StoodError::ConfigurationError {
+                message: "Provider creation timed out".to_string(),
+            })?
+            .map_err(|e| crate::StoodError::ConfigurationError {
+                message: format!("Failed to get provider: {}", e),
+            })
         })?;
 
-        Agent::build_internal(
-            provider,
-            model,
-            self.config,
-            self.tools,
-            self.middlewares,
-            self.execution_config,
-            self.agent_id,
-            self.agent_name,
-        )
-        .await
+        // Build internal agent
+        let agent = crate::perf_timed!("stood.agent_builder.build_internal", {
+            Agent::build_internal(
+                provider,
+                model,
+                self.config,
+                self.tools,
+                self.middlewares,
+                self.execution_config,
+                self.agent_id,
+                self.agent_name,
+            )
+            .await
+        });
+
+        crate::perf_checkpoint!("stood.agent_builder.build.end");
+        agent
     }
 }
 

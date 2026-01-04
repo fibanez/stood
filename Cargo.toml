@@ -112,6 +112,9 @@ stood-macros = { path = "stood-macros" }
 # Logging (for verification runner)
 env_logger = "0.10"
 
+# Performance timing (optional)
+dirs = { version = "5.0", optional = true }
+
 [features]
 default = []
 examples = []  # Feature to enable example-only modules
@@ -120,6 +123,7 @@ verification = []  # Feature to enable verification framework
 http = ["axum", "tower", "tower-http"]
 cuda = []      # Feature to enable CUDA support for Candle
 metal = []     # Feature to enable Metal support for Candle
+perf-timing = ["dirs"]  # Feature to enable performance timing output
 
 [dev-dependencies]
 # Testing
