@@ -67,16 +67,27 @@ pub struct BedrockProvider {
 impl BedrockProvider {
     /// Create a new Bedrock provider
     pub async fn new(region: Option<String>) -> Result<Self, LlmError> {
+        crate::perf_checkpoint!("stood.bedrock.new.start");
+
         // Configure AWS SDK
+        crate::perf_checkpoint!("stood.bedrock.config_loader_setup");
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
 
         if let Some(region) = region {
             config_loader = config_loader.region(aws_config::Region::new(region));
         }
 
-        let aws_config = config_loader.load().await;
-        let client = BedrockRuntimeClient::new(&aws_config);
+        // AWS config load (MAIN BOTTLENECK - TLS/SSL initialization)
+        let aws_config = crate::perf_timed!("stood.bedrock.aws_config_load", {
+            config_loader.load().await
+        });
 
+        // Client creation
+        let client = crate::perf_timed!("stood.bedrock.client_new", {
+            BedrockRuntimeClient::new(&aws_config)
+        });
+
+        crate::perf_checkpoint!("stood.bedrock.new.end");
         Ok(Self {
             client,
             aws_config,
@@ -115,7 +126,10 @@ impl BedrockProvider {
         secret_key: String,
         session_token: Option<String>,
     ) -> Result<Self, LlmError> {
+        crate::perf_checkpoint!("stood.bedrock.with_credentials.start");
+
         // Create credentials from provided parameters
+        crate::perf_checkpoint!("stood.bedrock.create_credentials");
         let creds = aws_sdk_bedrockruntime::config::Credentials::new(
             access_key,
             secret_key,
@@ -125,6 +139,7 @@ impl BedrockProvider {
         );
 
         // Configure AWS SDK with custom credentials
+        crate::perf_checkpoint!("stood.bedrock.config_loader_setup");
         let mut config_loader =
             aws_config::defaults(aws_config::BehaviorVersion::latest()).credentials_provider(creds);
 
@@ -132,9 +147,17 @@ impl BedrockProvider {
             config_loader = config_loader.region(aws_config::Region::new(region));
         }
 
-        let aws_config = config_loader.load().await;
-        let client = BedrockRuntimeClient::new(&aws_config);
+        // AWS config load (MAIN BOTTLENECK - TLS/SSL initialization ~950ms on first call)
+        let aws_config = crate::perf_timed!("stood.bedrock.aws_config_load", {
+            config_loader.load().await
+        });
 
+        // Client creation
+        let client = crate::perf_timed!("stood.bedrock.client_new", {
+            BedrockRuntimeClient::new(&aws_config)
+        });
+
+        crate::perf_checkpoint!("stood.bedrock.with_credentials.end");
         Ok(Self {
             client,
             aws_config,
@@ -1028,6 +1051,7 @@ impl LlmProvider for BedrockProvider {
         tools: &[Tool],
         config: &ChatConfig,
     ) -> Result<ChatResponse, LlmError> {
+        let _guard = crate::perf_guard!("stood.bedrock.chat_with_tools");
         let operation_id = Uuid::new_v4();
         let start_time = Instant::now();
 
@@ -1069,7 +1093,9 @@ impl LlmProvider for BedrockProvider {
         );
 
         // Build request body
-        let request_body = self.build_request_body(messages, model_id, tools, config)?;
+        let request_body = crate::perf_timed!("stood.bedrock.build_request_body", {
+            self.build_request_body(messages, model_id, tools, config)?
+        });
 
         // Store request JSON for raw capture
         self.store_request_json(&request_body);
@@ -1088,24 +1114,25 @@ impl LlmProvider for BedrockProvider {
             request_body.len()
         );
 
-        // Make API call with detailed error classification
-        let response = self
-            .client
-            .invoke_model()
-            .model_id(model_id)
-            .body(aws_sdk_bedrockruntime::primitives::Blob::new(
-                request_body.as_bytes(),
-            ))
-            .send()
-            .await
-            .map_err(|e| {
-                let detailed_error = self.classify_bedrock_error(&e, model_id);
-                LlmError::ProviderError {
-                    provider: ProviderType::Bedrock,
-                    message: detailed_error,
-                    source: Some(Box::new(e)),
-                }
-            })?;
+        // Make API call with detailed error classification (network latency)
+        let response = crate::perf_timed!("stood.bedrock.invoke_model", {
+            self.client
+                .invoke_model()
+                .model_id(model_id)
+                .body(aws_sdk_bedrockruntime::primitives::Blob::new(
+                    request_body.as_bytes(),
+                ))
+                .send()
+                .await
+                .map_err(|e| {
+                    let detailed_error = self.classify_bedrock_error(&e, model_id);
+                    LlmError::ProviderError {
+                        provider: ProviderType::Bedrock,
+                        message: detailed_error,
+                        source: Some(Box::new(e)),
+                    }
+                })
+        })?;
 
         let duration = start_time.elapsed();
         info!(
@@ -1122,11 +1149,13 @@ impl LlmProvider for BedrockProvider {
         })?;
 
         // Route to appropriate response parser based on model family
-        if model_id.contains("amazon.nova") {
-            self.parse_nova_response(&response_body, &operation_id.to_string())
-        } else {
-            self.parse_claude_response(&response_body, &operation_id.to_string())
-        }
+        crate::perf_timed!("stood.bedrock.parse_response", {
+            if model_id.contains("amazon.nova") {
+                self.parse_nova_response(&response_body, &operation_id.to_string())
+            } else {
+                self.parse_claude_response(&response_body, &operation_id.to_string())
+            }
+        })
     }
 
     async fn chat_streaming(

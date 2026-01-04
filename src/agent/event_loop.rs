@@ -329,6 +329,8 @@ impl EventLoop {
 
     /// Execute the agentic loop for a given prompt
     pub async fn execute(&mut self, prompt: impl Into<String>) -> Result<EventLoopResult> {
+        crate::perf_checkpoint!("stood.event_loop.execute.start");
+        let _execute_guard = crate::perf_guard!("stood.event_loop.execute");
         let prompt = prompt.into();
 
         // Create telemetry span for the event loop
@@ -452,8 +454,9 @@ impl EventLoop {
                 .as_ref()
                 .map(|span| (span.trace_id().to_string(), span.span_id().to_string()));
 
-            match self
-                .execute_cycle_with_prompt_with_context(
+            crate::perf_checkpoint!("stood.event_loop.cycle.start");
+            let cycle_result = crate::perf_timed!("stood.event_loop.cycle", {
+                self.execute_cycle_with_prompt_with_context(
                     cycle_id,
                     &original_prompt,
                     model_interaction_count == 0,
@@ -461,7 +464,10 @@ impl EventLoop {
                     invoke_agent_span_ids,
                 )
                 .await
-            {
+            });
+            crate::perf_checkpoint!("stood.event_loop.cycle.end");
+
+            match cycle_result {
                 Ok(cycle_result) => {
                     model_interaction_count += 1;
 

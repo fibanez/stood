@@ -186,6 +186,10 @@ pub enum TelemetryConfig {
         content_capture: bool,
         /// Log level for console output
         log_level: LogLevel,
+        /// Skip log group existence check (assume pre-created)
+        /// Set to true when log groups are created at application startup
+        /// to avoid the ~1 second timeout on each agent creation
+        skip_log_group_check: bool,
     },
 }
 
@@ -214,6 +218,7 @@ impl TelemetryConfig {
             agent_id: None,
             content_capture: false,
             log_level: LogLevel::INFO,
+            skip_log_group_check: false,
         }
     }
 
@@ -230,6 +235,7 @@ impl TelemetryConfig {
             agent_id: None,
             content_capture: false,
             log_level: LogLevel::INFO,
+            skip_log_group_check: false,
         }
     }
 
@@ -246,6 +252,7 @@ impl TelemetryConfig {
             agent_id: None,
             content_capture: false,
             log_level: LogLevel::INFO,
+            skip_log_group_check: false,
         }
     }
 
@@ -309,6 +316,7 @@ impl TelemetryConfig {
                     agent_id: None,
                     content_capture: false,
                     log_level,
+                    skip_log_group_check: false,
                 },
                 other => other,
             }
@@ -342,6 +350,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -351,6 +360,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
             },
         }
     }
@@ -366,6 +376,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -375,6 +386,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
             },
         }
     }
@@ -393,6 +405,7 @@ impl TelemetryConfig {
                 service_version,
                 agent_id,
                 content_capture,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -402,6 +415,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level: level,
+                skip_log_group_check,
             },
         }
     }
@@ -431,6 +445,7 @@ impl TelemetryConfig {
                 service_version,
                 agent_id,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -440,6 +455,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture: capture,
                 log_level,
+                skip_log_group_check,
             },
         }
     }
@@ -455,6 +471,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region: region.into(),
@@ -464,6 +481,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
             },
         }
     }
@@ -479,6 +497,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -488,6 +507,7 @@ impl TelemetryConfig {
                 agent_id,
                 content_capture,
                 log_level,
+                skip_log_group_check,
             },
         }
     }
@@ -509,6 +529,7 @@ impl TelemetryConfig {
                 service_version,
                 content_capture,
                 log_level,
+                skip_log_group_check,
                 ..
             } => Self::CloudWatch {
                 region,
@@ -518,6 +539,40 @@ impl TelemetryConfig {
                 agent_id: Some(agent_id.into()),
                 content_capture,
                 log_level,
+                skip_log_group_check,
+            },
+        }
+    }
+
+    /// Skip log group existence check during initialization
+    ///
+    /// When set to true, the tracer will not check if the CloudWatch log group
+    /// exists before exporting spans. This is useful when:
+    /// - Log groups are pre-created at application startup
+    /// - You want to avoid the ~1 second API timeout per agent
+    ///
+    /// Make sure the log groups exist before enabling this option.
+    pub fn with_skip_log_group_check(self, skip: bool) -> Self {
+        match self {
+            Self::Disabled { .. } => self,
+            Self::CloudWatch {
+                region,
+                credentials,
+                service_name,
+                service_version,
+                agent_id,
+                content_capture,
+                log_level,
+                ..
+            } => Self::CloudWatch {
+                region,
+                credentials,
+                service_name,
+                service_version,
+                agent_id,
+                content_capture,
+                log_level,
+                skip_log_group_check: skip,
             },
         }
     }
@@ -617,6 +672,7 @@ impl TelemetryConfig {
                         .map(|v| v.to_lowercase() == "true" || v == "1")
                         .unwrap_or(false),
                     log_level: LogLevel::INFO,
+                    skip_log_group_check: false,
                 };
             }
         }
@@ -634,6 +690,7 @@ impl TelemetryConfig {
                     agent_id: std::env::var("STOOD_AGENT_ID").ok(),
                     content_capture: false,
                     log_level: LogLevel::INFO,
+                    skip_log_group_check: false,
                 };
             }
         }
@@ -656,6 +713,7 @@ impl TelemetryConfig {
             agent_id: Some("stood-agent-test".to_string()),
             content_capture: false,
             log_level: LogLevel::DEBUG,
+            skip_log_group_check: false,
         }
     }
 

@@ -274,9 +274,13 @@ impl StoodTracer {
     /// let tracer = StoodTracer::init_async(config).await?;
     /// ```
     pub async fn init_async(config: TelemetryConfig) -> Result<Option<Self>, StoodError> {
+        crate::perf_checkpoint!("stood.tracer.init_async.start");
+        let _init_guard = crate::perf_guard!("stood.tracer.init_async");
+
         match &config {
             TelemetryConfig::Disabled { .. } => {
                 tracing::debug!("Telemetry disabled, skipping tracer initialization");
+                crate::perf_checkpoint!("stood.tracer.init_async.disabled");
                 Ok(None)
             }
             TelemetryConfig::CloudWatch {
@@ -285,8 +289,11 @@ impl StoodTracer {
                 service_name,
                 service_version,
                 agent_id,
+                skip_log_group_check,
                 ..
             } => {
+                crate::perf_checkpoint!("stood.tracer.init_async.cloudwatch", &format!("region={}", region));
+
                 // Derive agent_id from explicit config or fall back to service_name
                 let effective_agent_id = agent_id
                     .as_ref()
@@ -295,53 +302,80 @@ impl StoodTracer {
 
                 // CRITICAL: Create log group BEFORE initializing exporter
                 // This is required for spans to appear in the GenAI Dashboard
-                match super::log_group::LogGroupManager::new(region.clone()).await {
-                    Ok(manager) => {
-                        let log_group_config =
-                            super::log_group::AgentLogGroup::new(&effective_agent_id);
-                        match manager.ensure_exists(&log_group_config).await {
-                            Ok(created) => {
-                                if created {
-                                    tracing::info!(
-                                        "Created CloudWatch log group: {}",
-                                        log_group_config.log_group_name()
-                                    );
-                                } else {
-                                    tracing::debug!(
-                                        "CloudWatch log group already exists: {}",
-                                        log_group_config.log_group_name()
+                // Skip if skip_log_group_check is set (log groups pre-created at startup)
+                if *skip_log_group_check {
+                    crate::perf_checkpoint!("stood.tracer.log_group.skipped", &effective_agent_id);
+                    tracing::info!(
+                        "SKIP_LOG_GROUP_CHECK: Skipping log group check for agent_id={} (pre-created at startup)",
+                        effective_agent_id
+                    );
+                } else {
+                    tracing::info!(
+                        "LOG_GROUP_CHECK: Performing log group check for agent_id={}",
+                        effective_agent_id
+                    );
+                    crate::perf_checkpoint!("stood.tracer.log_group.start");
+                    let log_group_result = crate::perf_timed!("stood.tracer.log_group_manager_new", {
+                        super::log_group::LogGroupManager::new(region.clone()).await
+                    });
+                    match log_group_result {
+                        Ok(manager) => {
+                            let log_group_config =
+                                super::log_group::AgentLogGroup::new(&effective_agent_id);
+                            let ensure_result = crate::perf_timed!("stood.tracer.log_group_ensure_exists", {
+                                manager.ensure_exists(&log_group_config).await
+                            });
+                            match ensure_result {
+                                Ok(created) => {
+                                    if created {
+                                        crate::perf_checkpoint!("stood.tracer.log_group.created", &log_group_config.log_group_name());
+                                        tracing::info!(
+                                            "Created CloudWatch log group: {}",
+                                            log_group_config.log_group_name()
+                                        );
+                                    } else {
+                                        crate::perf_checkpoint!("stood.tracer.log_group.exists", &log_group_config.log_group_name());
+                                        tracing::debug!(
+                                            "CloudWatch log group already exists: {}",
+                                            log_group_config.log_group_name()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    crate::perf_checkpoint!("stood.tracer.log_group.error", &e.to_string());
+                                    // Log warning but continue - telemetry will still work,
+                                    // just won't appear in GenAI Dashboard
+                                    tracing::warn!(
+                                        "Failed to create log group '{}': {}. Spans may not appear in GenAI Dashboard.",
+                                        log_group_config.log_group_name(),
+                                        e
                                     );
                                 }
                             }
-                            Err(e) => {
-                                // Log warning but continue - telemetry will still work,
-                                // just won't appear in GenAI Dashboard
-                                tracing::warn!(
-                                    "Failed to create log group '{}': {}. Spans may not appear in GenAI Dashboard.",
-                                    log_group_config.log_group_name(),
-                                    e
-                                );
-                            }
+                        }
+                        Err(e) => {
+                            crate::perf_checkpoint!("stood.tracer.log_group_manager.error", &e.to_string());
+                            tracing::warn!(
+                                "Failed to initialize log group manager: {}. Spans may not appear in GenAI Dashboard.",
+                                e
+                            );
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to initialize log group manager: {}. Spans may not appear in GenAI Dashboard.",
-                            e
-                        );
-                    }
+                    crate::perf_checkpoint!("stood.tracer.log_group.end");
                 }
 
                 // Create CloudWatch exporter with configured credentials
-                let exporter = Arc::new(
-                    CloudWatchExporter::new(
-                        region.clone(),
-                        credentials.clone(),
-                        service_name.clone(),
-                        service_version.clone(),
+                let exporter = crate::perf_timed!("stood.tracer.cloudwatch_exporter_new", {
+                    Arc::new(
+                        CloudWatchExporter::new(
+                            region.clone(),
+                            credentials.clone(),
+                            service_name.clone(),
+                            service_version.clone(),
+                        )
+                        .with_agent_id(&effective_agent_id),
                     )
-                    .with_agent_id(&effective_agent_id),
-                );
+                });
 
                 tracing::info!(
                     "Telemetry tracer initialized with CloudWatch exporter (region: {}, service: {}, agent_id: {})",
@@ -350,6 +384,7 @@ impl StoodTracer {
                     effective_agent_id
                 );
 
+                crate::perf_checkpoint!("stood.tracer.init_async.end");
                 Ok(Some(Self::with_cloudwatch_exporter(config, exporter)))
             }
         }
