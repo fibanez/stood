@@ -26,7 +26,7 @@ For comprehensive documentation, examples, and guides, see the [Documentation](d
 
 Stood is an AI multi-agent framework that provides:
 
-- **Multi-Model Support** - Support for Claude, Nova, and Providers (work in progress)
+- **Multi-Model Support** - AWS Bedrock (Claude 4.5 Sonnet/Haiku/Opus, Mistral Large 2/3, Nova Lite/Pro/Micro/Premier, Nova 2 Lite/Pro), LM Studio (local models), with additional providers in development
 - **Type-Safe Tools** - Compile-time validation of tool parameters with Rust's type system
 - **Agentic Execution** - Agents can autonomously chain tools and make decisions to complete complex tasks
 - **Enterprise Features** - Comprehensive error handling, observability, and performance optimization, with optional zero-configuration telemetry
@@ -67,7 +67,7 @@ async fn calculate(expression: String) -> Result<f64, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create an agent with default settings (uses Claude 3.5 Haiku)
+    // Create an agent with default settings (uses Claude Haiku 4.5)
     let agent = Agent::builder()
         .tools(vec![calculate()])
         .build()
@@ -243,6 +243,13 @@ The examples are organized by complexity:
 ### Expert Examples
 - [022\_aws\_doc\_mcp](examples/022_aws_doc_mcp/) - AWS documentation MCP integration
 - [023\_telemetry](examples/023_telemetry/) - Comprehensive telemetry examples
+- [024\_enterprise\_prompt\_builder](examples/024_enterprise_prompt_builder.rs) - Enterprise prompt building patterns
+- [025\_cloudwatch\_observability](examples/025_cloudwatch_observability.rs) - CloudWatch GenAI observability integration
+- [026\_nebula\_evaluation\_test](examples/026_nebula_evaluation_test.rs) - Nebula evaluation testing
+- [027\_tool\_approval\_middleware](examples/027_tool_approval_middleware.rs) - Tool approval middleware patterns
+- [030\_test\_mistral](examples/030_test_mistral.rs) - Mistral model integration testing
+- [031\_test\_mistral\_large3](examples/031_test_mistral_large3.rs) - Mistral Large 3 model testing
+- [032\_test\_mistral\_tools](examples/032_test_mistral_tools.rs) - Mistral with tool calling
 
 ## TODO - Work in Progress
 
@@ -251,8 +258,8 @@ The examples are organized by complexity:
 ### Provider Support Status
 
 **✅ Implemented Providers:**
-- AWS Bedrock (Claude 3.5 Haiku, Nova, other Bedrock models)
-- LM Studio (local development and testing)
+- AWS Bedrock (Claude 4.5 Sonnet/Haiku/Opus, Mistral Large 2/3, Nova Lite/Pro/Micro/Premier, Nova 2 Lite/Pro)
+- LM Studio (Gemma 3 12B/27B, Llama 3 70B, Mistral 7B, Tessa Rust 7B)
 
 **🚧 Planned Providers (Not Yet Implemented):**
 - Anthropic API (direct Claude API access)

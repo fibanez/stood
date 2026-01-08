@@ -3,7 +3,7 @@ members = [".", "stood-macros"]
 
 [package]
 name = "stood"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Fernando Ibanez <fernando.ibanez@gmail.com"]
 description = "AI Multi-Agent library implementation for Rust"
