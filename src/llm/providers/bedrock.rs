@@ -192,6 +192,8 @@ impl BedrockProvider {
             self.build_claude_request(messages, tools, config, &operation_id)
         } else if model_id.contains("amazon.nova") {
             self.build_nova_request(messages, tools, config, &operation_id)
+        } else if model_id.contains("mistral.mistral") {
+            self.build_mistral_request(messages, tools, config, &operation_id)
         } else {
             Err(LlmError::ModelNotFound {
                 model_id: model_id.to_string(),
@@ -470,6 +472,170 @@ impl BedrockProvider {
         })
     }
 
+    /// Build Mistral-specific request
+    fn build_mistral_request(
+        &self,
+        messages: &Messages,
+        tools: &[Tool],
+        config: &ChatConfig,
+        operation_id: &str,
+    ) -> Result<String, LlmError> {
+        let mut request_messages = Vec::new();
+
+        // Process messages - Mistral includes system messages in the messages array
+        for message in &messages.messages {
+            match message.role {
+                MessageRole::System => {
+                    // System messages go in the messages array with role: "system"
+                    let text = message
+                        .content
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if !text.is_empty() {
+                        request_messages.push(json!({
+                            "role": "system",
+                            "content": text
+                        }));
+                    }
+                }
+                MessageRole::User | MessageRole::Assistant => {
+                    let mut content_parts = Vec::new();
+                    let mut has_tool_calls = false;
+                    let mut tool_calls = Vec::new();
+
+                    for block in &message.content {
+                        match block {
+                            ContentBlock::Text { text } => {
+                                content_parts.push(json!({
+                                    "type": "text",
+                                    "text": text
+                                }));
+                            }
+                            ContentBlock::ToolUse { id, name, input } => {
+                                has_tool_calls = true;
+                                // Mistral uses OpenAI-style function calling format
+                                let safe_input = if input.is_null() || !input.is_object() {
+                                    serde_json::Value::Object(serde_json::Map::new())
+                                } else {
+                                    input.clone()
+                                };
+
+                                // Convert input object to JSON string for arguments
+                                let arguments_str = serde_json::to_string(&safe_input)
+                                    .unwrap_or_else(|_| "{}".to_string());
+
+                                tool_calls.push(json!({
+                                    "id": id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": name,
+                                        "arguments": arguments_str
+                                    }
+                                }));
+                            }
+                            ContentBlock::ToolResult {
+                                tool_use_id,
+                                content: tool_content,
+                                is_error,
+                            } => {
+                                // Mistral tool results come back as role: "tool" messages
+                                // We'll handle these separately
+                                request_messages.push(json!({
+                                    "role": "tool",
+                                    "tool_call_id": tool_use_id,
+                                    "content": tool_content.to_display_string(),
+                                    "is_error": is_error
+                                }));
+                            }
+                            _ => {} // Skip other content types
+                        }
+                    }
+
+                    // Build message based on role and content
+                    if message.role == MessageRole::Assistant && has_tool_calls {
+                        // Assistant message with tool calls
+                        let mut msg = json!({
+                            "role": "assistant",
+                            "tool_calls": tool_calls
+                        });
+                        // Add content if there's text along with tool calls
+                        if !content_parts.is_empty() {
+                            msg["content"] = if content_parts.len() == 1
+                                && content_parts[0]["type"] == "text" {
+                                // Single text content can be a string
+                                json!(content_parts[0]["text"].as_str().unwrap_or(""))
+                            } else {
+                                json!(content_parts)
+                            };
+                        }
+                        request_messages.push(msg);
+                    } else if !content_parts.is_empty() {
+                        // Regular user/assistant message
+                        request_messages.push(json!({
+                            "role": match message.role {
+                                MessageRole::User => "user",
+                                MessageRole::Assistant => "assistant",
+                                _ => unreachable!()
+                            },
+                            "content": if content_parts.len() == 1
+                                && content_parts[0]["type"] == "text" {
+                                // Single text content can be a string
+                                json!(content_parts[0]["text"].as_str().unwrap_or(""))
+                            } else {
+                                json!(content_parts)
+                            }
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Build tools array in Mistral format (OpenAI-style)
+        let mut mistral_tools = Vec::new();
+        for tool in tools {
+            mistral_tools.push(json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema
+                }
+            }));
+        }
+
+        // Build final request
+        let mut request = json!({
+            "messages": request_messages,
+            "max_tokens": config.max_tokens.unwrap_or(8192)
+        });
+
+        // Add optional parameters
+        if let Some(temp) = config.temperature {
+            request["temperature"] = json!(temp);
+        }
+
+        // Add tools if provided
+        if !mistral_tools.is_empty() {
+            request["tools"] = json!(mistral_tools);
+            request["tool_choice"] = json!("auto");
+        }
+
+        debug!(
+            "[{}] 📤 Mistral request body (pretty formatted):\n{}",
+            operation_id,
+            serde_json::to_string_pretty(&request).unwrap_or_else(|_| "Invalid JSON".to_string())
+        );
+
+        serde_json::to_string(&request).map_err(|e| LlmError::SerializationError {
+            message: format!("Failed to serialize Mistral request: {}", e),
+        })
+    }
+
     /// Parse Claude response
     fn parse_claude_response(
         &self,
@@ -646,6 +812,123 @@ impl BedrockProvider {
             tool_calls,
             thinking: None,
             usage: None,
+            metadata,
+        })
+    }
+
+    /// Parse Mistral response
+    fn parse_mistral_response(
+        &self,
+        response_body: &str,
+        operation_id: &str,
+    ) -> Result<ChatResponse, LlmError> {
+        let response: Value =
+            serde_json::from_str(response_body).map_err(|e| LlmError::SerializationError {
+                message: format!("Failed to parse Mistral response: {}", e),
+            })?;
+
+        debug!(
+            "[{}] 📨 Mistral response body (pretty formatted):\n{}",
+            operation_id,
+            serde_json::to_string_pretty(&response).unwrap_or_else(|_| "Invalid JSON".to_string())
+        );
+
+        // Mistral response structure: outputs[0].message
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+
+        if let Some(outputs) = response.get("outputs").and_then(|o| o.as_array()) {
+            if let Some(first_output) = outputs.first() {
+                if let Some(message) = first_output.get("message") {
+                    // Extract content from message.content
+                    if let Some(msg_content) = message.get("content") {
+                        if let Some(text) = msg_content.as_str() {
+                            // Simple string content
+                            content = text.to_string();
+                        } else if let Some(content_array) = msg_content.as_array() {
+                            // Array of content parts
+                            for content_part in content_array {
+                                if let Some(text) = content_part.get("text").and_then(|t| t.as_str()) {
+                                    if !content.is_empty() {
+                                        content.push(' ');
+                                    }
+                                    content.push_str(text);
+                                }
+                            }
+                        }
+                    }
+
+                    // Extract tool calls from message.tool_calls
+                    if let Some(tool_calls_array) = message.get("tool_calls").and_then(|tc| tc.as_array()) {
+                        for tool_call in tool_calls_array {
+                            if let Some(function) = tool_call.get("function") {
+                                let name = function
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                // Parse arguments JSON string to Value
+                                let input = if let Some(args_str) = function.get("arguments").and_then(|a| a.as_str()) {
+                                    serde_json::from_str(args_str)
+                                        .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()))
+                                } else {
+                                    serde_json::Value::Object(serde_json::Map::new())
+                                };
+
+                                let id = tool_call
+                                    .get("id")
+                                    .and_then(|id| id.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                tool_calls.push(crate::llm::traits::ToolCall {
+                                    id,
+                                    name,
+                                    input,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract usage information
+        let usage = response
+            .get("usage")
+            .and_then(|u| u.as_object())
+            .map(|usage| crate::llm::traits::Usage {
+                input_tokens: usage
+                    .get("prompt_tokens")
+                    .and_then(|t| t.as_u64())
+                    .unwrap_or(0) as u32,
+                output_tokens: usage
+                    .get("completion_tokens")
+                    .and_then(|t| t.as_u64())
+                    .unwrap_or(0) as u32,
+                total_tokens: usage
+                    .get("total_tokens")
+                    .and_then(|t| t.as_u64())
+                    .unwrap_or(0) as u32,
+            });
+
+        // Create metadata
+        let mut metadata = HashMap::new();
+        if let Some(outputs) = response.get("outputs").and_then(|o| o.as_array()) {
+            if let Some(first_output) = outputs.first() {
+                if let Some(stop_reason) = first_output.get("stop_reason") {
+                    metadata.insert("stop_reason".to_string(), stop_reason.clone());
+                }
+            }
+        }
+        metadata.insert("model".to_string(), json!("mistral-large"));
+
+        Ok(ChatResponse {
+            content,
+            tool_calls,
+            thinking: None,
+            usage,
             metadata,
         })
     }
@@ -1152,6 +1435,8 @@ impl LlmProvider for BedrockProvider {
         crate::perf_timed!("stood.bedrock.parse_response", {
             if model_id.contains("amazon.nova") {
                 self.parse_nova_response(&response_body, &operation_id.to_string())
+            } else if model_id.contains("mistral.mistral") {
+                self.parse_mistral_response(&response_body, &operation_id.to_string())
             } else {
                 self.parse_claude_response(&response_body, &operation_id.to_string())
             }
@@ -1281,6 +1566,8 @@ impl LlmProvider for BedrockProvider {
                 "us.amazon.nova-premier-v1:0".to_string(),
                 "us.amazon.nova-2-lite-v1:0".to_string(),
                 "us.amazon.nova-2-pro-v1:0".to_string(),
+                "mistral.mistral-large-2407-v1:0".to_string(),
+                "mistral.mistral-large-3-675b-instruct".to_string(),
             ],
         }
     }
@@ -1300,6 +1587,8 @@ impl LlmProvider for BedrockProvider {
             "us.amazon.nova-premier-v1:0",
             "us.amazon.nova-2-lite-v1:0",
             "us.amazon.nova-2-pro-v1:0",
+            "mistral.mistral-large-2407-v1:0",
+            "mistral.mistral-large-3-675b-instruct",
         ]
     }
 

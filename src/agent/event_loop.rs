@@ -2239,6 +2239,17 @@ impl EventLoop {
             llm_tools.len()
         );
 
+        // Use agent's configured settings (max_tokens, temperature, etc.)
+        let agent_config = self.agent.config();
+        let chat_config = crate::llm::traits::ChatConfig {
+            model_id: agent_config.model_id.clone(),
+            provider: agent_config.provider,
+            temperature: agent_config.temperature,
+            max_tokens: agent_config.max_tokens,
+            enable_thinking: false,
+            additional_params: std::collections::HashMap::new(),
+        };
+
         let response = match self
             .agent
             .provider()
@@ -2246,7 +2257,7 @@ impl EventLoop {
                 self.agent.model().model_id(),
                 self.agent.conversation().messages(),
                 &llm_tools,
-                &crate::llm::traits::ChatConfig::default(),
+                &chat_config,
             )
             .await
         {
@@ -2387,6 +2398,17 @@ impl EventLoop {
             }
         }
 
+        // Use agent's configured settings (max_tokens, temperature, etc.)
+        let agent_config = self.agent.config();
+        let chat_config = crate::llm::traits::ChatConfig {
+            model_id: agent_config.model_id.clone(),
+            provider: agent_config.provider,
+            temperature: agent_config.temperature,
+            max_tokens: agent_config.max_tokens,
+            enable_thinking: false,
+            additional_params: std::collections::HashMap::new(),
+        };
+
         // Get the streaming receiver from LLM provider using streaming with tools
         let mut stream_receiver = if llm_tools.is_empty() {
             // No tools available, use regular streaming
@@ -2396,7 +2418,7 @@ impl EventLoop {
                 .chat_streaming(
                     self.agent.model().model_id(),
                     self.agent.conversation().messages(),
-                    &crate::llm::traits::ChatConfig::default(),
+                    &chat_config,
                 )
                 .await
                 .map_err(|e| crate::StoodError::model_error(format!("Streaming error: {}", e)))?
@@ -2412,7 +2434,7 @@ impl EventLoop {
                     self.agent.model().model_id(),
                     self.agent.conversation().messages(),
                     &llm_tools,
-                    &crate::llm::traits::ChatConfig::default(),
+                    &chat_config,
                 )
                 .await
                 .map_err(|e| {

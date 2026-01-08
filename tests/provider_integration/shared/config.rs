@@ -195,6 +195,26 @@ pub fn create_integration_test_configs() -> Vec<TestConfig> {
             enable_streaming: true,
             max_parallel_tools: 4,
         },
+        // AWS Bedrock Mistral Large 2
+        TestConfig {
+            provider: ProviderType::Bedrock,
+            model_id: "mistral.mistral-large-2407-v1:0".to_string(),
+            timeout: Duration::from_secs(30),
+            max_retries: 3,
+            enable_telemetry: true,
+            enable_streaming: true,
+            max_parallel_tools: 4,
+        },
+        // AWS Bedrock Mistral Large 3
+        TestConfig {
+            provider: ProviderType::Bedrock,
+            model_id: "mistral.mistral-large-3-675b-instruct".to_string(),
+            timeout: Duration::from_secs(30),
+            max_retries: 3,
+            enable_telemetry: true,
+            enable_streaming: true,
+            max_parallel_tools: 4,
+        },
     ]
 }
 

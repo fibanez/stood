@@ -476,10 +476,14 @@ fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn 
                 "us.anthropic.claude-3-opus-20240229-v1:0" => {
                     Box::new(crate::llm::models::Bedrock::ClaudeOpus3)
                 }
-                // Nova models
+                // Nova models (legacy Nova 1)
                 "us.amazon.nova-lite-v1:0" => Box::new(crate::llm::models::Bedrock::NovaLite),
                 "us.amazon.nova-pro-v1:0" => Box::new(crate::llm::models::Bedrock::NovaPro),
                 "us.amazon.nova-micro-v1:0" => Box::new(crate::llm::models::Bedrock::NovaMicro),
+                // Nova 2 models (current generation)
+                "us.amazon.nova-2-lite-v1:0" => Box::new(crate::llm::models::Bedrock::Nova2Lite),
+                "us.amazon.nova-2-pro-v1:0" => Box::new(crate::llm::models::Bedrock::Nova2Pro),
+                "us.amazon.nova-premier-v1:0" => Box::new(crate::llm::models::Bedrock::NovaPremier),
                 _ => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45), // Default fallback
             }
         }
@@ -1922,6 +1926,13 @@ impl AgentBuilder {
         if self.config.model_id.is_empty() {
             self.config.provider = model.provider();
             self.config.model_id = model.model_id().to_string();
+        }
+
+        // Use model's default max_tokens if not explicitly set by user
+        // This ensures each model gets its optimal output limit (e.g., 8192 for Sonnet 4.5)
+        if self.config.max_tokens.is_none() || self.config.max_tokens == Some(4096) {
+            let model_max = model.default_max_tokens();
+            self.config.max_tokens = Some(model_max);
         }
 
         // CRITICAL FIX: Auto-configure provider registry with timeout and error handling

@@ -97,6 +97,32 @@ pub mod Bedrock {
     pub struct ClaudeOpus3;
 
     // ============================================================================
+    // Mistral Models
+    // ============================================================================
+
+    /// Mistral Large 2 via AWS Bedrock - flagship reasoning model
+    ///
+    /// High-capability model with strong reasoning, coding, and multilingual support.
+    /// 128K context window with advanced function calling.
+    /// Released: July 2024
+    #[derive(Debug, Clone, Copy)]
+    pub struct MistralLarge2;
+
+    /// Mistral Large 3 via AWS Bedrock - latest flagship model
+    ///
+    /// Latest Mistral flagship with enhanced capabilities.
+    /// 128K context window with advanced function calling.
+    /// Released: December 2025
+    #[derive(Debug, Clone, Copy)]
+    pub struct MistralLarge3;
+
+    /// Alias for the latest Mistral Large model (currently Large 3)
+    ///
+    /// Using this alias ensures your application automatically uses the latest
+    /// Mistral Large model when upgrading the Stood library.
+    pub type MistralLatest = MistralLarge3;
+
+    // ============================================================================
     // Amazon Nova Models
     // ============================================================================
 
@@ -391,6 +417,82 @@ pub mod Bedrock {
             4_096
         }
     }
+
+    // ============================================================================
+    // Mistral Model Implementations
+    // ============================================================================
+
+    impl LlmModel for MistralLarge2 {
+        fn model_id(&self) -> &'static str {
+            "mistral.mistral-large-2407-v1:0"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            128_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_vision: false,
+                context_window: Some(128_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Mistral Large 2"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    impl LlmModel for MistralLarge3 {
+        fn model_id(&self) -> &'static str {
+            "mistral.mistral-large-3-675b-instruct"
+        }
+        fn provider(&self) -> ProviderType {
+            ProviderType::Bedrock
+        }
+        fn context_window(&self) -> usize {
+            128_000
+        }
+        fn max_output_tokens(&self) -> usize {
+            8_192
+        }
+        fn capabilities(&self) -> ModelCapabilities {
+            ModelCapabilities {
+                max_tokens: Some(8_192),
+                supports_tools: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_vision: false,
+                context_window: Some(128_000),
+            }
+        }
+        fn display_name(&self) -> &'static str {
+            "Mistral Large 3"
+        }
+        fn default_temperature(&self) -> f32 {
+            0.7
+        }
+        fn default_max_tokens(&self) -> u32 {
+            8_192
+        }
+    }
+
+    // ============================================================================
+    // Nova Model Implementations
+    // ============================================================================
 
     impl LlmModel for NovaLite {
         fn model_id(&self) -> &'static str {

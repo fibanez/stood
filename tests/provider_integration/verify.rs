@@ -16,6 +16,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
+use stood::agent::Agent;
+use stood::llm::models::Bedrock;
 
 /// Test filtering options for granular test selection
 #[derive(Debug, Clone)]
@@ -436,6 +438,48 @@ pub enum TestId {
     Nova2ProNonStreamingTokenCounting,
     Nova2ProStreamingTokenCountingWithTools,
     Nova2ProTokenCountingConsistency,
+    // Mistral Large 2 - Core tests
+    MistralLarge2BasicChat,
+    MistralLarge2MultiTurn,
+    MistralLarge2HealthCheck,
+    MistralLarge2Capabilities,
+    MistralLarge2Configuration,
+    MistralLarge2ProviderRegistry,
+    // Mistral Large 2 tool tests
+    MistralLarge2ToolRegistry,
+    MistralLarge2ToolBuiltinCalculator,
+    MistralLarge2ToolBuiltinFileRead,
+    MistralLarge2ToolCustomMacro,
+    MistralLarge2ToolParallelExecution,
+    // Mistral Large 2 streaming tests
+    MistralLarge2BasicStreaming,
+    MistralLarge2StreamingWithTools,
+    // Mistral Large 2 token counting tests
+    MistralLarge2StreamingTokenCounting,
+    MistralLarge2NonStreamingTokenCounting,
+    MistralLarge2StreamingTokenCountingWithTools,
+    MistralLarge2TokenCountingConsistency,
+    // Mistral Large 3 - Core tests
+    MistralLarge3BasicChat,
+    MistralLarge3MultiTurn,
+    MistralLarge3HealthCheck,
+    MistralLarge3Capabilities,
+    MistralLarge3Configuration,
+    MistralLarge3ProviderRegistry,
+    // Mistral Large 3 tool tests
+    MistralLarge3ToolRegistry,
+    MistralLarge3ToolBuiltinCalculator,
+    MistralLarge3ToolBuiltinFileRead,
+    MistralLarge3ToolCustomMacro,
+    MistralLarge3ToolParallelExecution,
+    // Mistral Large 3 streaming tests
+    MistralLarge3BasicStreaming,
+    MistralLarge3StreamingWithTools,
+    // Mistral Large 3 token counting tests
+    MistralLarge3StreamingTokenCounting,
+    MistralLarge3NonStreamingTokenCounting,
+    MistralLarge3StreamingTokenCountingWithTools,
+    MistralLarge3TokenCountingConsistency,
 }
 
 /// Parallel verification runner
@@ -1077,6 +1121,92 @@ impl VerificationRunner {
                                 model_name: "amazon-nova-2-pro".to_string(),
                                 test_id: TestId::Nova2ProProviderRegistry,
                             },
+                            // Mistral Large 2 test cases
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "basic_chat".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2BasicChat,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "multi_turn".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2MultiTurn,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "health_check".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2HealthCheck,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "capabilities".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2Capabilities,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "configuration".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2Configuration,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "provider_registry".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ProviderRegistry,
+                            },
+                            // Mistral Large 3 test cases
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "basic_chat".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3BasicChat,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "multi_turn".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3MultiTurn,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "health_check".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3HealthCheck,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "capabilities".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3Capabilities,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "configuration".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3Configuration,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "provider_registry".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ProviderRegistry,
+                            },
                         ]);
                     }
                     (Provider::LmStudio, TestSuite::Tools) => {
@@ -1308,6 +1438,78 @@ impl VerificationRunner {
                                 model_name: "amazon-nova-2-pro".to_string(),
                                 test_id: TestId::Nova2ProToolParallelExecution,
                             },
+                            // Mistral Large 2 tool test cases
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "tool_registry".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ToolRegistry,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "builtin_calculator".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ToolBuiltinCalculator,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "builtin_file_read".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ToolBuiltinFileRead,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "custom_macro".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ToolCustomMacro,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "parallel_execution".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2ToolParallelExecution,
+                            },
+                            // Mistral Large 3 tool test cases
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "tool_registry".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ToolRegistry,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "builtin_calculator".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ToolBuiltinCalculator,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "builtin_file_read".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ToolBuiltinFileRead,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "custom_macro".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ToolCustomMacro,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "parallel_execution".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3ToolParallelExecution,
+                            },
                         ]);
                     }
                     (Provider::LmStudio, TestSuite::Streaming) => {
@@ -1413,6 +1615,36 @@ impl VerificationRunner {
                                 test_name: "streaming_with_tools".to_string(),
                                 model_name: "amazon-nova-2-pro".to_string(),
                                 test_id: TestId::Nova2ProStreamingWithTools,
+                            },
+                            // Mistral Large 2 streaming tests
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "basic_streaming".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2BasicStreaming,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_with_tools".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2StreamingWithTools,
+                            },
+                            // Mistral Large 3 streaming tests
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "basic_streaming".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3BasicStreaming,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_with_tools".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3StreamingWithTools,
                             },
                         ]);
                     }
@@ -1603,6 +1835,64 @@ impl VerificationRunner {
                                 test_name: "token_counting_consistency".to_string(),
                                 model_name: "amazon-nova-2-pro".to_string(),
                                 test_id: TestId::Nova2ProTokenCountingConsistency,
+                            },
+                            // Mistral Large 2 token counting tests
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_token_counting".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2StreamingTokenCounting,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "non_streaming_token_counting".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2NonStreamingTokenCounting,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_token_counting_with_tools".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2StreamingTokenCountingWithTools,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "token_counting_consistency".to_string(),
+                                model_name: "mistral-large-2".to_string(),
+                                test_id: TestId::MistralLarge2TokenCountingConsistency,
+                            },
+                            // Mistral Large 3 token counting tests
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_token_counting".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3StreamingTokenCounting,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "non_streaming_token_counting".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3NonStreamingTokenCounting,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "streaming_token_counting_with_tools".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3StreamingTokenCountingWithTools,
+                            },
+                            TestCase {
+                                provider: provider.clone(),
+                                suite: suite.clone(),
+                                test_name: "token_counting_consistency".to_string(),
+                                model_name: "mistral-large-3".to_string(),
+                                test_id: TestId::MistralLarge3TokenCountingConsistency,
                             },
                         ]);
                     }
@@ -2123,6 +2413,150 @@ impl VerificationRunner {
                 .map_err(|e| format!("{}", e).into()),
             TestId::Nova2ProTokenCountingConsistency => self
                 .test_token_counting_consistency("bedrock", "us.amazon.nova-2-pro-v1:0")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 2 Core tests
+            TestId::MistralLarge2BasicChat => self
+                .test_mistral_large_2_basic_chat()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2MultiTurn => self
+                .test_mistral_large_2_multi_turn()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2HealthCheck => self
+                .test_mistral_large_2_health_check()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2Capabilities => self
+                .test_mistral_large_2_capabilities()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2Configuration => self
+                .test_mistral_large_2_configuration()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2ProviderRegistry => self
+                .test_mistral_large_2_provider_registry()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 2 Tool tests
+            TestId::MistralLarge2ToolRegistry => self
+                .test_mistral_large_2_tool_registry()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2ToolBuiltinCalculator => self
+                .test_mistral_large_2_tool_builtin_calculator()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2ToolBuiltinFileRead => self
+                .test_mistral_large_2_tool_builtin_file_read()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2ToolCustomMacro => self
+                .test_mistral_large_2_tool_custom_macro()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2ToolParallelExecution => self
+                .test_mistral_large_2_tool_parallel_execution()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 2 Streaming tests
+            TestId::MistralLarge2BasicStreaming => self
+                .test_mistral_large_2_basic_streaming()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2StreamingWithTools => self
+                .test_mistral_large_2_streaming_with_tools()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 2 Token counting tests
+            TestId::MistralLarge2StreamingTokenCounting => self
+                .test_token_counting_streaming("bedrock", "mistral.mistral-large-2407-v1:0")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2NonStreamingTokenCounting => self
+                .test_token_counting_non_streaming("bedrock", "mistral.mistral-large-2407-v1:0")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2StreamingTokenCountingWithTools => self
+                .test_token_counting_streaming_with_tools("bedrock", "mistral.mistral-large-2407-v1:0")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge2TokenCountingConsistency => self
+                .test_token_counting_consistency("bedrock", "mistral.mistral-large-2407-v1:0")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 3 Core tests
+            TestId::MistralLarge3BasicChat => self
+                .test_mistral_large_3_basic_chat()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3MultiTurn => self
+                .test_mistral_large_3_multi_turn()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3HealthCheck => self
+                .test_mistral_large_3_health_check()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3Capabilities => self
+                .test_mistral_large_3_capabilities()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3Configuration => self
+                .test_mistral_large_3_configuration()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3ProviderRegistry => self
+                .test_mistral_large_3_provider_registry()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 3 Tool tests
+            TestId::MistralLarge3ToolRegistry => self
+                .test_mistral_large_3_tool_registry()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3ToolBuiltinCalculator => self
+                .test_mistral_large_3_tool_builtin_calculator()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3ToolBuiltinFileRead => self
+                .test_mistral_large_3_tool_builtin_file_read()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3ToolCustomMacro => self
+                .test_mistral_large_3_tool_custom_macro()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3ToolParallelExecution => self
+                .test_mistral_large_3_tool_parallel_execution()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 3 Streaming tests
+            TestId::MistralLarge3BasicStreaming => self
+                .test_mistral_large_3_basic_streaming()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3StreamingWithTools => self
+                .test_mistral_large_3_streaming_with_tools()
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            // Mistral Large 3 Token counting tests
+            TestId::MistralLarge3StreamingTokenCounting => self
+                .test_token_counting_streaming("bedrock", "mistral.mistral-large-3-675b-instruct")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3NonStreamingTokenCounting => self
+                .test_token_counting_non_streaming("bedrock", "mistral.mistral-large-3-675b-instruct")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3StreamingTokenCountingWithTools => self
+                .test_token_counting_streaming_with_tools("bedrock", "mistral.mistral-large-3-675b-instruct")
+                .await
+                .map_err(|e| format!("{}", e).into()),
+            TestId::MistralLarge3TokenCountingConsistency => self
+                .test_token_counting_consistency("bedrock", "mistral.mistral-large-3-675b-instruct")
                 .await
                 .map_err(|e| format!("{}", e).into()),
         }
@@ -5316,6 +5750,640 @@ impl VerificationRunner {
             return Err("Token counting failed in one or both modes".into());
         }
 
+        Ok(())
+    }
+
+    // ============================================================================
+    // Mistral Large 2 Tests
+    // ============================================================================
+
+    async fn test_mistral_large_2_basic_chat(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .system_prompt("You are a helpful assistant. Respond briefly.")
+            .build()
+            .await?;
+
+        let response = agent.execute("What is 2+2?").await?;
+
+        if !response.success {
+            return Err(format!("Agent execution failed: {}", response.error.unwrap_or_default()).into());
+        }
+
+        if response.response.trim().is_empty() {
+            return Err("Empty response from Mistral Large 2".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_multi_turn(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .system_prompt("You are a helpful assistant. Respond briefly.")
+            .build()
+            .await?;
+
+        let response1 = agent.execute("My name is Alice").await?;
+        if !response1.success || response1.response.trim().is_empty() {
+            return Err("First turn failed".into());
+        }
+
+        let response2 = agent.execute("What is my name?").await?;
+        if !response2.success {
+            return Err("Second turn failed".into());
+        }
+
+        if !response2.response.to_lowercase().contains("alice") {
+            return Err(format!("Context not maintained. Response: {}", response2.response).into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_health_check(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .build()
+            .await?;
+
+        let response = agent.execute("ping").await?;
+        if !response.success {
+            return Err("Health check failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_capabilities(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::llm::models::Bedrock;
+        use stood::llm::traits::LlmModel;
+
+        let model = Bedrock::MistralLarge2;
+        let caps = model.capabilities();
+
+        if !caps.supports_tools {
+            return Err("Model should support tools".into());
+        }
+
+        if !caps.supports_streaming {
+            return Err("Model should support streaming".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_configuration(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::llm::models::Bedrock;
+        use stood::llm::traits::LlmModel;
+
+        let model = Bedrock::MistralLarge2;
+
+        if model.model_id().is_empty() {
+            return Err("Mistral Large 2 model ID should not be empty".into());
+        }
+
+        if model.context_window() == 0 {
+            return Err("Mistral Large 2 context window should be > 0".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_provider_registry(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .build()
+            .await?;
+
+        let response = agent.execute("test").await?;
+        if !response.success {
+            return Err("Provider registry test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_tool_registry(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("What is 5+3?").await?;
+        if !response.success {
+            return Err("Tool registry test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_tool_builtin_calculator(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .system_prompt("When asked to calculate something, use the calculator tool.")
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate 15 * 7 using the calculator").await?;
+
+        if !response.success {
+            return Err("Calculator tool test failed".into());
+        }
+
+        if !response.used_tools {
+            return Err("Calculator tool was not used".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_tool_builtin_file_read(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::FileReadTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .tool(Box::new(FileReadTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("test file read").await?;
+        if !response.success {
+            return Err("File read tool test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_tool_custom_macro(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tool;
+
+        #[tool]
+        async fn test_tool(input: String) -> Result<String, String> {
+            Ok(format!("Processed: {}", input))
+        }
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .tool(test_tool())
+            .build()
+            .await?;
+
+        let response = agent.execute("test").await?;
+        if !response.success {
+            return Err("Custom macro tool test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_tool_parallel_execution(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate both 5+3 and 10*2").await?;
+        if !response.success {
+            return Err("Parallel execution test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_basic_streaming(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .with_streaming(true)
+            .build()
+            .await?;
+
+        let response = agent.execute("Count from 1 to 3").await?;
+
+        if !response.success {
+            return Err("Streaming test failed".into());
+        }
+
+        // Note: Streaming may not be implemented yet, so this test will fail
+        // until streaming is added to the Bedrock provider for Mistral models
+        Ok(())
+    }
+
+    async fn test_mistral_large_2_streaming_with_tools(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 2 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge2)
+            .with_streaming(true)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate 10 + 5").await?;
+
+        if !response.success {
+            return Err("Streaming with tools test failed".into());
+        }
+
+        // Note: Streaming may not be implemented yet, so this test will fail
+        // until streaming is added to the Bedrock provider for Mistral models
+        Ok(())
+    }
+
+    // ============================================================================
+    // Mistral Large 3 Tests
+    // ============================================================================
+
+    async fn test_mistral_large_3_basic_chat(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .system_prompt("You are a helpful assistant. Respond briefly.")
+            .build()
+            .await?;
+
+        let response = agent.execute("What is 2+2?").await?;
+
+        if !response.success {
+            return Err(format!("Agent execution failed: {}", response.error.unwrap_or_default()).into());
+        }
+
+        if response.response.trim().is_empty() {
+            return Err("Empty response from Mistral Large 3".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_multi_turn(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .system_prompt("You are a helpful assistant. Respond briefly.")
+            .build()
+            .await?;
+
+        let response1 = agent.execute("My name is Alice").await?;
+        if !response1.success || response1.response.trim().is_empty() {
+            return Err("First turn failed".into());
+        }
+
+        let response2 = agent.execute("What is my name?").await?;
+        if !response2.success {
+            return Err("Second turn failed".into());
+        }
+
+        if !response2.response.to_lowercase().contains("alice") {
+            return Err(format!("Context not maintained. Response: {}", response2.response).into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_health_check(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .build()
+            .await?;
+
+        let response = agent.execute("ping").await?;
+        if !response.success {
+            return Err("Health check failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_capabilities(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::llm::models::Bedrock;
+        use stood::llm::traits::LlmModel;
+
+        let model = Bedrock::MistralLarge3;
+        let caps = model.capabilities();
+
+        if !caps.supports_tools {
+            return Err("Model should support tools".into());
+        }
+
+        if !caps.supports_streaming {
+            return Err("Model should support streaming".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_configuration(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::llm::models::Bedrock;
+        use stood::llm::traits::LlmModel;
+
+        let model = Bedrock::MistralLarge3;
+
+        if model.model_id().is_empty() {
+            return Err("Mistral Large 3 model ID should not be empty".into());
+        }
+
+        if model.context_window() == 0 {
+            return Err("Mistral Large 3 context window should be > 0".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_provider_registry(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .build()
+            .await?;
+
+        let response = agent.execute("test").await?;
+        if !response.success {
+            return Err("Provider registry test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_tool_registry(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("What is 5+3?").await?;
+        if !response.success {
+            return Err("Tool registry test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_tool_builtin_calculator(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .system_prompt("When asked to calculate something, use the calculator tool.")
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate 15 * 7 using the calculator").await?;
+
+        if !response.success {
+            return Err("Calculator tool test failed".into());
+        }
+
+        if !response.used_tools {
+            return Err("Calculator tool was not used".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_tool_builtin_file_read(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::FileReadTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .tool(Box::new(FileReadTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("test file read").await?;
+        if !response.success {
+            return Err("File read tool test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_tool_custom_macro(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tool;
+
+        #[tool]
+        async fn test_tool(input: String) -> Result<String, String> {
+            Ok(format!("Processed: {}", input))
+        }
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .tool(test_tool())
+            .build()
+            .await?;
+
+        let response = agent.execute("test").await?;
+        if !response.success {
+            return Err("Custom macro tool test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_tool_parallel_execution(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate both 5+3 and 10*2").await?;
+        if !response.success {
+            return Err("Parallel execution test failed".into());
+        }
+
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_basic_streaming(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .with_streaming(true)
+            .build()
+            .await?;
+
+        let response = agent.execute("Count from 1 to 3").await?;
+
+        if !response.success {
+            return Err("Streaming test failed".into());
+        }
+
+        // Note: Streaming may not be implemented yet, so this test will fail
+        // until streaming is added to the Bedrock provider for Mistral models
+        Ok(())
+    }
+
+    async fn test_mistral_large_3_streaming_with_tools(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use stood::agent::Agent;
+        use stood::llm::models::Bedrock;
+        use stood::tools::builtin::CalculatorTool;
+
+        if std::env::var("AWS_ACCESS_KEY_ID").is_err() && std::env::var("AWS_PROFILE").is_err() {
+            return Err("Mistral Large 3 test requires AWS credentials".into());
+        }
+
+        let mut agent = Agent::builder()
+            .model(Bedrock::MistralLarge3)
+            .with_streaming(true)
+            .tool(Box::new(CalculatorTool::new()) as Box<dyn stood::tools::Tool>)
+            .build()
+            .await?;
+
+        let response = agent.execute("Calculate 10 + 5").await?;
+
+        if !response.success {
+            return Err("Streaming with tools test failed".into());
+        }
+
+        // Note: Streaming may not be implemented yet, so this test will fail
+        // until streaming is added to the Bedrock provider for Mistral models
         Ok(())
     }
 }
