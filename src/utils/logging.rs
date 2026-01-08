@@ -18,10 +18,11 @@
 /// assert_eq!(obscured, "AKIA2***");
 /// ```
 pub fn obscure_credential(credential: &str) -> String {
-    if credential.len() <= 5 {
-        "*".repeat(credential.len())
+    let char_count = credential.chars().count();
+    if char_count <= 5 {
+        "*".repeat(char_count)
     } else {
-        format!("{}***", &credential[..5])
+        format!("{}***", truncate_string(credential, 5))
     }
 }
 
@@ -41,6 +42,31 @@ pub fn obscure_credential(credential: &str) -> String {
 /// ```
 pub fn safe_log_aws_key(access_key_id: &str) -> String {
     obscure_credential(access_key_id)
+}
+
+/// Safely truncates a string to a maximum number of characters, respecting UTF-8 boundaries
+///
+/// This function prevents panics when truncating strings that contain multi-byte UTF-8 characters
+/// like emojis. It truncates at character boundaries rather than byte boundaries.
+///
+/// # Arguments
+///
+/// * `s` - The string to truncate
+/// * `max_chars` - Maximum number of characters (not bytes) to keep
+///
+/// # Examples
+///
+/// ```rust
+/// use stood::utils::logging::truncate_string;
+///
+/// let text = "Hello 👋 World!";
+/// assert_eq!(truncate_string(text, 10), "Hello 👋 Wo");
+///
+/// let text = "Short";
+/// assert_eq!(truncate_string(text, 100), "Short");
+/// ```
+pub fn truncate_string(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
 }
 
 /// Detects if a string looks like a credential and obscures it
@@ -97,5 +123,31 @@ mod tests {
         let sanitized = sanitize_for_logging(input);
         assert!(sanitized.contains("AKIA2***"));
         assert!(!sanitized.contains("AKIA2PP6SBMCSVNYUNVK"));
+    }
+
+    #[test]
+    fn test_truncate_string() {
+        // Test basic truncation
+        assert_eq!(truncate_string("Hello World", 5), "Hello");
+
+        // Test with emojis (multi-byte characters)
+        assert_eq!(truncate_string("Hello 👋 World!", 10), "Hello 👋 Wo");
+        assert_eq!(truncate_string("👋👋👋👋👋", 3), "👋👋👋");
+
+        // Test string shorter than limit
+        assert_eq!(truncate_string("Short", 100), "Short");
+
+        // Test empty string
+        assert_eq!(truncate_string("", 10), "");
+
+        // Test with various multi-byte characters
+        assert_eq!(truncate_string("日本語テキスト", 3), "日本語");
+    }
+
+    #[test]
+    fn test_obscure_credential_with_emojis() {
+        // Test that obscure_credential handles multi-byte characters safely
+        assert_eq!(obscure_credential("👋👋👋👋👋👋"), "👋👋👋👋👋***");
+        assert_eq!(obscure_credential("😀😃😄"), "***");
     }
 }

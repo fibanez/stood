@@ -494,8 +494,8 @@ impl ToolExecutor {
         // Create a truncated input preview for logging (first 100 chars)
         let input_preview = {
             let input_str = tool_use.input.to_string();
-            if input_str.len() > 100 {
-                format!("{}...", &input_str[..100])
+            if input_str.chars().count() > 100 {
+                format!("{}...", crate::utils::logging::truncate_string(&input_str, 100))
             } else {
                 input_str
             }
@@ -567,8 +567,8 @@ impl ToolExecutor {
                 // Create a truncated output preview for logging
                 let output_preview = {
                     let output_str = tool_result.content.to_string();
-                    if output_str.len() > 100 {
-                        format!("{}...", &output_str[..100])
+                    if output_str.chars().count() > 100 {
+                        format!("{}...", crate::utils::logging::truncate_string(&output_str, 100))
                     } else {
                         output_str
                     }

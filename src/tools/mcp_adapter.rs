@@ -67,8 +67,8 @@ impl MCPAgentTool {
                     ToolResultContent::text(format!(
                         "Image data ({}): {}",
                         image_content.mime_type,
-                        if image_content.data.len() > 100 {
-                            format!("{}...", &image_content.data[..100])
+                        if image_content.data.chars().count() > 100 {
+                            format!("{}...", crate::utils::logging::truncate_string(&image_content.data, 100))
                         } else {
                             image_content.data.clone()
                         }

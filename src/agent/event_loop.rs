@@ -835,8 +835,8 @@ impl EventLoop {
             );
 
             // Add response content preview (first 200 chars for observability)
-            let response_preview = if llm_response.content.len() > 200 {
-                format!("{}...", &llm_response.content[..200])
+            let response_preview = if llm_response.content.chars().count() > 200 {
+                format!("{}...", crate::utils::logging::truncate_string(&llm_response.content, 200))
             } else {
                 llm_response.content.clone()
             };
@@ -1239,10 +1239,10 @@ impl EventLoop {
 
                             // Enhanced debugging: Log actual message content
                             if let Some(text) = last_message.text() {
-                                let preview = if text.len() > 200 {
-                                    format!("{}...", &text[..200])
+                                let preview = if text.chars().count() > 200 {
+                                    format!("{}...", crate::utils::logging::truncate_string(&text, 200))
                                 } else {
-                                    text
+                                    text.to_string()
                                 };
                                 tracing::debug!("🔧 Last message content preview: '{}'", preview);
                             }
@@ -1285,8 +1285,8 @@ impl EventLoop {
                                     tracing::warn!("⚠️  Follow-up response is EMPTY despite successful tool execution!");
                                     tracing::warn!("⚠️  Tool results were available but model didn't generate response");
                                 } else {
-                                    let preview = if current_response.content.len() > 200 {
-                                        format!("{}...", &current_response.content[..200])
+                                    let preview = if current_response.content.chars().count() > 200 {
+                                        format!("{}...", crate::utils::logging::truncate_string(&current_response.content, 200))
                                     } else {
                                         current_response.content.clone()
                                     };

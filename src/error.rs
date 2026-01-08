@@ -363,10 +363,10 @@ impl BedrockErrorContext {
             || error_message == "Unknown error"
         {
             let error_debug = format!("{:?}", error);
-            let enhanced_message = if error_debug.len() > 200 {
+            let enhanced_message = if error_debug.chars().count() > 200 {
                 format!(
                     "Service error - InvokeModel details: {}...",
-                    &error_debug[..200]
+                    crate::utils::logging::truncate_string(&error_debug, 200)
                 )
             } else {
                 format!("Service error - InvokeModel details: {}", error_debug)
@@ -437,10 +437,10 @@ impl BedrockErrorContext {
             || error_message == "Unknown error"
         {
             let error_debug = format!("{:?}", error);
-            error_message = if error_debug.len() > 200 {
+            error_message = if error_debug.chars().count() > 200 {
                 format!(
                     "Service error - AWS SDK details: {}...",
-                    &error_debug[..200]
+                    crate::utils::logging::truncate_string(&error_debug, 200)
                 )
             } else {
                 format!("Service error - AWS SDK details: {}", error_debug)
