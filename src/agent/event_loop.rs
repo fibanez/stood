@@ -2250,12 +2250,13 @@ impl EventLoop {
             additional_params: std::collections::HashMap::new(),
         };
 
+        let messages_with_prompt = self.agent.conversation().messages_with_system_prompt();
         let response = match self
             .agent
             .provider()
             .chat_with_tools(
                 self.agent.model().model_id(),
-                self.agent.conversation().messages(),
+                &messages_with_prompt,
                 &llm_tools,
                 &chat_config,
             )
@@ -2410,6 +2411,7 @@ impl EventLoop {
         };
 
         // Get the streaming receiver from LLM provider using streaming with tools
+        let messages_with_prompt = self.agent.conversation().messages_with_system_prompt();
         let mut stream_receiver = if llm_tools.is_empty() {
             // No tools available, use regular streaming
             tracing::info!("🌊 Using regular streaming (no tools available)");
@@ -2417,7 +2419,7 @@ impl EventLoop {
                 .provider()
                 .chat_streaming(
                     self.agent.model().model_id(),
-                    self.agent.conversation().messages(),
+                    &messages_with_prompt,
                     &chat_config,
                 )
                 .await
@@ -2432,7 +2434,7 @@ impl EventLoop {
                 .provider()
                 .chat_streaming_with_tools(
                     self.agent.model().model_id(),
-                    self.agent.conversation().messages(),
+                    &messages_with_prompt,
                     &llm_tools,
                     &chat_config,
                 )

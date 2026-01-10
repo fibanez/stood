@@ -450,7 +450,13 @@ impl Clone for Agent {
 /// Utility function to create model instances from provider and model_id
 #[allow(deprecated)]
 fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn LlmModel> {
-    match provider {
+    tracing::info!(
+        target: "stood::agent::create_model_from_config",
+        provider = ?provider,
+        model_id = model_id,
+        "Creating model from config"
+    );
+    let result: Box<dyn LlmModel> = match provider {
         ProviderType::Bedrock => {
             match model_id {
                 // Claude 4.5 models (recommended)
@@ -498,7 +504,13 @@ fn create_model_from_config(provider: &ProviderType, model_id: &str) -> Box<dyn 
             }
         }
         _ => Box::new(crate::llm::models::Bedrock::ClaudeHaiku45), // Default fallback for other providers
-    }
+    };
+    tracing::info!(
+        target: "stood::agent::create_model_from_config",
+        resulting_model_id = result.model_id(),
+        "Model created from config"
+    );
+    result
 }
 
 impl Agent {
@@ -795,7 +807,20 @@ impl Agent {
 
         // Create EventLoop with pre-configured settings - EventLoop OWNS a copy of the Agent
         // Create a new model instance based on the configuration
+        tracing::debug!(
+            target: "stood::agent",
+            "DEBUG [EXECUTE-1]: About to call create_model_from_config(provider={:?}, model_id={})",
+            &self.config.provider,
+            &self.config.model_id
+        );
+
         let model = create_model_from_config(&self.config.provider, &self.config.model_id);
+
+        tracing::debug!(
+            target: "stood::agent",
+            "DEBUG [EXECUTE-2]: create_model_from_config returned model with id: {}",
+            model.model_id()
+        );
 
         let agent_copy = Agent::build_internal(
             Arc::clone(&self.provider),
@@ -1045,6 +1070,15 @@ impl AgentBuilder {
 
         // Store the model instance
         self.model = Some(Box::new(model));
+
+        // DEBUG: Log that model was set
+        tracing::debug!(
+            target: "stood::agent::builder",
+            "DEBUG [STOOD-1]: model() called, set model_id={}, provider={:?}",
+            self.config.model_id,
+            self.config.provider
+        );
+
         self
     }
 
@@ -1917,10 +1951,23 @@ impl AgentBuilder {
         let _build_guard = crate::perf_guard!("stood.agent_builder.build");
 
         // Use provided model or create default
-        let model = self.model.unwrap_or_else(|| {
+        let model = if let Some(m) = self.model {
+            // DEBUG: Log that model was found
+            tracing::debug!(
+                target: "stood::agent::builder",
+                "DEBUG [STOOD-2]: build() found model, model_id={}",
+                self.config.model_id
+            );
+            m
+        } else {
+            // DEBUG: Log that model is None, falling back to default
+            tracing::warn!(
+                target: "stood::agent::builder",
+                "DEBUG [STOOD-2]: build() found NO MODEL (self.model is None), falling back to Claude Haiku 4.5"
+            );
             // Default to Claude Haiku 4.5
             Box::new(crate::llm::models::Bedrock::ClaudeHaiku45)
-        });
+        };
 
         // Update config with model info if not already set
         if self.config.model_id.is_empty() {
@@ -1932,6 +1979,12 @@ impl AgentBuilder {
         // This ensures each model gets its optimal output limit (e.g., 8192 for Sonnet 4.5)
         if self.config.max_tokens.is_none() || self.config.max_tokens == Some(4096) {
             let model_max = model.default_max_tokens();
+            tracing::debug!(
+                target: "stood::agent::builder",
+                "Setting max_tokens={} from model default (was {:?})",
+                model_max,
+                self.config.max_tokens
+            );
             self.config.max_tokens = Some(model_max);
         }
 
