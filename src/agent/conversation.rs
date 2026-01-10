@@ -235,6 +235,13 @@ impl ConversationManager {
         &self.messages
     }
 
+    /// Get messages with system prompt included (creates a new Messages struct)
+    pub fn messages_with_system_prompt(&self) -> Messages {
+        let mut messages = self.messages.clone();
+        messages.system_prompt = self.system_prompt.clone();
+        messages
+    }
+
     /// Get the number of messages
     pub fn message_count(&self) -> usize {
         self.messages.len()

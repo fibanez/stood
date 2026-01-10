@@ -117,6 +117,9 @@ impl Message {
 pub struct Messages {
     /// The list of messages in chronological order
     pub messages: Vec<Message>,
+    /// Optional system prompt for the conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
 }
 
 impl Messages {
@@ -124,6 +127,15 @@ impl Messages {
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
+            system_prompt: None,
+        }
+    }
+
+    /// Create a new message collection with a system prompt
+    pub fn with_system_prompt(system_prompt: String) -> Self {
+        Self {
+            messages: Vec::new(),
+            system_prompt: Some(system_prompt),
         }
     }
 
@@ -208,7 +220,10 @@ impl std::ops::DerefMut for Messages {
 
 impl From<Vec<Message>> for Messages {
     fn from(messages: Vec<Message>) -> Self {
-        Self { messages }
+        Self {
+            messages,
+            system_prompt: None,
+        }
     }
 }
 

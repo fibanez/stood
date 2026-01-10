@@ -211,24 +211,28 @@ impl BedrockProvider {
         operation_id: &str,
     ) -> Result<String, LlmError> {
         let mut request_messages = Vec::new();
-        let mut system_prompt = None;
+
+        // Use system_prompt from Messages struct if available, otherwise extract from System role messages
+        let mut system_prompt = messages.system_prompt.clone();
 
         // Process messages
         for message in &messages.messages {
             match message.role {
                 MessageRole::System => {
-                    // Extract system prompt
-                    let text = message
-                        .content
-                        .iter()
-                        .filter_map(|block| match block {
-                            ContentBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if !text.is_empty() {
-                        system_prompt = Some(text);
+                    // Extract system prompt from messages (fallback if not in Messages struct)
+                    if system_prompt.is_none() {
+                        let text = message
+                            .content
+                            .iter()
+                            .filter_map(|block| match block {
+                                ContentBlock::Text { text } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if !text.is_empty() {
+                            system_prompt = Some(text);
+                        }
                     }
                 }
                 MessageRole::User | MessageRole::Assistant => {
@@ -295,8 +299,16 @@ impl BedrockProvider {
         });
 
         // Add system prompt if present
-        if let Some(system) = system_prompt {
+        if let Some(system) = &system_prompt {
             request["system"] = json!(system);
+            debug!(
+                "[{}] 📋 System prompt being sent ({} chars): {}...",
+                operation_id,
+                system.len(),
+                &system.chars().take(200).collect::<String>()
+            );
+        } else {
+            debug!("[{}] ⚠️  NO SYSTEM PROMPT - this may cause unexpected behavior", operation_id);
         }
 
         // Add temperature if specified
@@ -341,24 +353,28 @@ impl BedrockProvider {
         operation_id: &str,
     ) -> Result<String, LlmError> {
         let mut request_messages = Vec::new();
-        let mut system_prompt = None;
+
+        // Use system_prompt from Messages struct if available, otherwise extract from System role messages
+        let mut system_prompt = messages.system_prompt.clone();
 
         // Process messages - Nova format is similar to Claude but with different structure
         for message in &messages.messages {
             match message.role {
                 MessageRole::System => {
-                    // Extract system prompt for Nova
-                    let text = message
-                        .content
-                        .iter()
-                        .filter_map(|block| match block {
-                            ContentBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if !text.is_empty() {
-                        system_prompt = Some(text);
+                    // Extract system prompt for Nova (fallback if not in Messages struct)
+                    if system_prompt.is_none() {
+                        let text = message
+                            .content
+                            .iter()
+                            .filter_map(|block| match block {
+                                ContentBlock::Text { text } => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        if !text.is_empty() {
+                            system_prompt = Some(text);
+                        }
                     }
                 }
                 MessageRole::User | MessageRole::Assistant => {
@@ -429,8 +445,16 @@ impl BedrockProvider {
         });
 
         // Add system prompt if present (Nova Invoke API format)
-        if let Some(system) = system_prompt {
+        if let Some(system) = &system_prompt {
             request["system"] = json!([{"text": system}]);
+            debug!(
+                "[{}] 📋 System prompt being sent to Nova ({} chars): {}...",
+                operation_id,
+                system.len(),
+                &system.chars().take(200).collect::<String>()
+            );
+        } else {
+            debug!("[{}] ⚠️  NO SYSTEM PROMPT for Nova - this may cause unexpected behavior", operation_id);
         }
 
         // Add temperature if specified
