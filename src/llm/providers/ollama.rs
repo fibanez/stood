@@ -104,6 +104,8 @@ impl LlmProvider for OllamaProvider {
             supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
+            supports_prompt_caching: false, // Local models don't support prompt caching
+            supports_tool_caching: false,
             max_tokens: None, // Varies by model
             available_models: vec![
                 "llama3.2".to_string(),

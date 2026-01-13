@@ -329,6 +329,8 @@ impl LlmProvider for AnthropicProvider {
             supports_tools: true, // Basic chat with tools implemented via convert_messages_to_anthropic
             supports_thinking: false, // TODO: Add thinking mode support
             supports_vision: false, // TODO: Add vision support
+            supports_prompt_caching: true, // Anthropic API supports prompt caching
+            supports_tool_caching: true,   // Claude supports tool caching
             max_tokens: Some(8192), // Anthropic allows up to 8192 output tokens
             available_models: vec![
                 "claude-3-5-sonnet-20241022".to_string(),
@@ -482,6 +484,9 @@ impl AnthropicProvider {
                 total_tokens: (usage["input_tokens"].as_u64().unwrap_or(0)
                     + usage["output_tokens"].as_u64().unwrap_or(0))
                     as u32,
+                // Anthropic API uses same field names as Claude on Bedrock
+                cache_read_tokens: usage["cache_read_input_tokens"].as_u64().map(|t| t as u32),
+                cache_write_tokens: usage["cache_creation_input_tokens"].as_u64().map(|t| t as u32),
             });
 
         // Create metadata

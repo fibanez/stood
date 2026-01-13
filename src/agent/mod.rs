@@ -141,7 +141,7 @@ use uuid::Uuid;
 // LLM provider system imports
 use crate::llm::providers::retry::RetryConfig;
 use crate::llm::registry::PROVIDER_REGISTRY;
-use crate::llm::traits::{LlmModel, LlmProvider, ProviderType};
+use crate::llm::traits::{CacheStrategy, LlmModel, LlmProvider, ProviderType};
 
 use crate::telemetry::{StoodTracer, TelemetryConfig};
 
@@ -222,6 +222,8 @@ pub struct AgentConfig {
     pub system_prompt: Option<String>,
     pub agent_id: Option<String>,
     pub agent_name: Option<String>,
+    /// Prompt caching strategy for reducing latency and costs
+    pub cache_strategy: CacheStrategy,
 
     pub telemetry_config: Option<TelemetryConfig>,
     pub retry_config: Option<RetryConfig>,
@@ -315,6 +317,7 @@ impl Default for AgentConfig {
             system_prompt: None,
             agent_id: None,
             agent_name: None,
+            cache_strategy: CacheStrategy::default(),
 
             telemetry_config: None,
             retry_config: None,
@@ -1153,6 +1156,78 @@ impl AgentBuilder {
     /// Disable retry behavior entirely
     pub fn without_retry(mut self) -> Self {
         self.config.retry_config = Some(RetryConfig::disabled());
+        self
+    }
+
+    /// Enable prompt caching to reduce latency and costs
+    ///
+    /// Prompt caching can reduce latency by up to 85% and costs by up to 90%
+    /// for repeated prompts by caching frequently used content across API calls.
+    ///
+    /// # Supported Models
+    /// - **Claude models**: Full support (system prompt + tool definitions)
+    /// - **Nova models**: Partial support (system prompt only, no tool caching)
+    /// - **Mistral models**: Not supported (caching will be ignored)
+    ///
+    /// # Cache TTL
+    /// The cache has a 5-minute TTL that resets with each successful cache hit.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use stood::agent::Agent;
+    /// use stood::llm::models::Bedrock;
+    /// use stood::CacheStrategy;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Cache system prompt only (most common use case)
+    /// let agent = Agent::builder()
+    ///     .model(Bedrock::ClaudeSonnet45)
+    ///     .system_prompt("You are a helpful coding assistant...")
+    ///     .with_prompt_caching(CacheStrategy::SystemOnly)
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Cache system prompt and tool definitions
+    /// let agent = Agent::builder()
+    ///     .model(Bedrock::ClaudeSonnet45)
+    ///     .with_builtin_tools()
+    ///     .with_prompt_caching(CacheStrategy::SystemAndTools)
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Automatic cache placement
+    /// let agent = Agent::builder()
+    ///     .model(Bedrock::ClaudeHaiku45)
+    ///     .with_prompt_caching(CacheStrategy::Auto)
+    ///     .build()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_prompt_caching(mut self, strategy: CacheStrategy) -> Self {
+        self.config.cache_strategy = strategy;
+        self
+    }
+
+    /// Enable system-only prompt caching (convenience method)
+    ///
+    /// This is equivalent to `.with_prompt_caching(CacheStrategy::SystemOnly)`.
+    /// Caches the system prompt to reduce costs on repeated queries with the
+    /// same instructions.
+    pub fn with_system_caching(mut self) -> Self {
+        self.config.cache_strategy = CacheStrategy::SystemOnly;
+        self
+    }
+
+    /// Enable full prompt caching including tools (convenience method)
+    ///
+    /// This is equivalent to `.with_prompt_caching(CacheStrategy::SystemAndTools)`.
+    /// Caches both the system prompt and tool definitions.
+    ///
+    /// **Note**: Tool caching is only supported by Claude models. Nova models
+    /// will automatically fall back to system-only caching.
+    pub fn with_full_caching(mut self) -> Self {
+        self.config.cache_strategy = CacheStrategy::SystemAndTools;
         self
     }
 

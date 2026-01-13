@@ -4,8 +4,8 @@
 //! response parsing, streaming, and error handling for Claude, Nova, and Llama models.
 
 use crate::llm::traits::{
-    ChatConfig, ChatResponse, HealthStatus, LlmError, LlmProvider, ProviderCapabilities,
-    ProviderType, StreamEvent, Tool,
+    CacheStrategy, ChatConfig, ChatResponse, HealthStatus, LlmError, LlmProvider,
+    ProviderCapabilities, ProviderType, StreamEvent, Tool,
 };
 use crate::types::{ContentBlock, MessageRole, Messages};
 use async_trait::async_trait;
@@ -177,6 +177,37 @@ impl BedrockProvider {
         self.last_request_json.lock().ok()?.clone()
     }
 
+    /// Check if a model supports prompt caching
+    ///
+    /// Returns `true` if the model supports prompt caching on AWS Bedrock.
+    /// Currently supported: Claude models and Nova models.
+    /// Not supported: Mistral models.
+    pub fn supports_prompt_caching(model_id: &str) -> bool {
+        model_id.contains("anthropic.claude") || model_id.contains("amazon.nova")
+    }
+
+    /// Check if a model supports tool definition caching
+    ///
+    /// Returns `true` if the model supports caching tool definitions.
+    /// Currently only Claude models support tool caching.
+    /// Nova models only support system prompt caching.
+    pub fn supports_tool_caching(model_id: &str) -> bool {
+        model_id.contains("anthropic.claude")
+    }
+
+    /// Get the model family for cache-specific behavior
+    fn get_model_family(model_id: &str) -> Option<&'static str> {
+        if model_id.contains("anthropic.claude") {
+            Some("claude")
+        } else if model_id.contains("amazon.nova") {
+            Some("nova")
+        } else if model_id.contains("mistral.mistral") {
+            Some("mistral")
+        } else {
+            None
+        }
+    }
+
     /// Build request body for Bedrock API
     fn build_request_body(
         &self,
@@ -186,6 +217,22 @@ impl BedrockProvider {
         config: &ChatConfig,
     ) -> Result<String, LlmError> {
         let operation_id = Uuid::new_v4().to_string();
+
+        // Validate cache strategy for the model
+        if !matches!(config.cache_strategy, CacheStrategy::Disabled) {
+            if !Self::supports_prompt_caching(model_id) {
+                debug!(
+                    "[{}] ⚠️ Prompt caching requested but model '{}' does not support it. Caching disabled.",
+                    operation_id, model_id
+                );
+            } else {
+                let model_family = Self::get_model_family(model_id).unwrap_or("unknown");
+                debug!(
+                    "[{}] 🗄️ Prompt caching enabled for {} model with strategy {:?}",
+                    operation_id, model_family, config.cache_strategy
+                );
+            }
+        }
 
         // Route to appropriate builder based on model family
         if model_id.contains("anthropic.claude") {
@@ -298,15 +345,41 @@ impl BedrockProvider {
             "messages": request_messages
         });
 
+        // Determine if we should add cache markers
+        let enable_system_cache = matches!(
+            config.cache_strategy,
+            CacheStrategy::SystemOnly | CacheStrategy::SystemAndTools | CacheStrategy::Auto
+        );
+        let enable_tool_cache = matches!(
+            config.cache_strategy,
+            CacheStrategy::SystemAndTools | CacheStrategy::Auto
+        );
+
         // Add system prompt if present
+        // When caching is enabled, use array format with cache_control marker
         if let Some(system) = &system_prompt {
-            request["system"] = json!(system);
-            debug!(
-                "[{}] 📋 System prompt being sent ({} chars): {}...",
-                operation_id,
-                system.len(),
-                &system.chars().take(200).collect::<String>()
-            );
+            if enable_system_cache {
+                // Use array format with cache_control for prompt caching
+                request["system"] = json!([{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": { "type": "ephemeral" }
+                }]);
+                debug!(
+                    "[{}] 📋🗄️ System prompt with cache_control ({} chars): {}...",
+                    operation_id,
+                    system.len(),
+                    &system.chars().take(200).collect::<String>()
+                );
+            } else {
+                request["system"] = json!(system);
+                debug!(
+                    "[{}] 📋 System prompt being sent ({} chars): {}...",
+                    operation_id,
+                    system.len(),
+                    &system.chars().take(200).collect::<String>()
+                );
+            }
         } else {
             debug!("[{}] ⚠️  NO SYSTEM PROMPT - this may cause unexpected behavior", operation_id);
         }
@@ -318,14 +391,25 @@ impl BedrockProvider {
 
         // Add tools if provided
         if !tools.is_empty() {
+            let tool_count = tools.len();
             let claude_tools: Vec<Value> = tools
                 .iter()
-                .map(|tool| {
-                    json!({
+                .enumerate()
+                .map(|(idx, tool)| {
+                    let mut tool_json = json!({
                         "name": tool.name,
                         "description": tool.description,
                         "input_schema": tool.input_schema
-                    })
+                    });
+
+                    // Add cache_control to the LAST tool when tool caching is enabled
+                    // This caches all tools up to and including this point
+                    if enable_tool_cache && idx == tool_count - 1 {
+                        tool_json["cache_control"] = json!({ "type": "ephemeral" });
+                        debug!("[{}] 🗄️ Added cache_control to tool definitions", operation_id);
+                    }
+
+                    tool_json
                 })
                 .collect();
 
@@ -444,15 +528,45 @@ impl BedrockProvider {
             }
         });
 
-        // Add system prompt if present (Nova Invoke API format)
-        if let Some(system) = &system_prompt {
-            request["system"] = json!([{"text": system}]);
+        // Determine if we should add cache markers
+        // Note: Nova only supports system prompt caching, NOT tool caching
+        let enable_system_cache = matches!(
+            config.cache_strategy,
+            CacheStrategy::SystemOnly | CacheStrategy::SystemAndTools | CacheStrategy::Auto
+        );
+
+        // Log warning if user requested tool caching (not supported by Nova)
+        if matches!(config.cache_strategy, CacheStrategy::SystemAndTools) && !tools.is_empty() {
             debug!(
-                "[{}] 📋 System prompt being sent to Nova ({} chars): {}...",
-                operation_id,
-                system.len(),
-                &system.chars().take(200).collect::<String>()
+                "[{}] ⚠️ Nova does not support tool caching. Only system prompt will be cached.",
+                operation_id
             );
+        }
+
+        // Add system prompt if present (Nova Invoke API format)
+        // When caching is enabled, add cachePoint marker
+        if let Some(system) = &system_prompt {
+            if enable_system_cache {
+                // Nova uses cachePoint instead of cache_control
+                request["system"] = json!([{
+                    "text": system,
+                    "cachePoint": { "type": "default" }
+                }]);
+                debug!(
+                    "[{}] 📋🗄️ Nova system prompt with cachePoint ({} chars): {}...",
+                    operation_id,
+                    system.len(),
+                    &system.chars().take(200).collect::<String>()
+                );
+            } else {
+                request["system"] = json!([{"text": system}]);
+                debug!(
+                    "[{}] 📋 System prompt being sent to Nova ({} chars): {}...",
+                    operation_id,
+                    system.len(),
+                    &system.chars().take(200).collect::<String>()
+                );
+            }
         } else {
             debug!("[{}] ⚠️  NO SYSTEM PROMPT for Nova - this may cause unexpected behavior", operation_id);
         }
@@ -463,6 +577,7 @@ impl BedrockProvider {
         }
 
         // Add tools if provided (Nova tool format)
+        // Note: Nova does NOT support tool caching - tools are sent without cache markers
         if !tools.is_empty() {
             let nova_tools: Vec<Value> = tools
                 .iter()
@@ -719,6 +834,8 @@ impl BedrockProvider {
                 total_tokens: (usage["input_tokens"].as_u64().unwrap_or(0)
                     + usage["output_tokens"].as_u64().unwrap_or(0))
                     as u32,
+                cache_read_tokens: usage["cache_read_input_tokens"].as_u64().map(|t| t as u32),
+                cache_write_tokens: usage["cache_creation_input_tokens"].as_u64().map(|t| t as u32),
             });
 
         // Create metadata
@@ -809,6 +926,15 @@ impl BedrockProvider {
                         .get("totalTokens")
                         .and_then(|t| t.as_u64())
                         .unwrap_or(0) as u32,
+                    // Nova uses different field names for cache metrics
+                    cache_read_tokens: usage
+                        .get("cacheReadInputTokenCount")
+                        .and_then(|t| t.as_u64())
+                        .map(|t| t as u32),
+                    cache_write_tokens: usage
+                        .get("cacheWriteInputTokenCount")
+                        .and_then(|t| t.as_u64())
+                        .map(|t| t as u32),
                 });
 
             // Create metadata from top-level fields
@@ -935,6 +1061,9 @@ impl BedrockProvider {
                     .get("total_tokens")
                     .and_then(|t| t.as_u64())
                     .unwrap_or(0) as u32,
+                // Mistral doesn't support prompt caching on Bedrock
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             });
 
         // Create metadata
@@ -1049,6 +1178,9 @@ impl BedrockProvider {
                             input_tokens,
                             output_tokens,
                             total_tokens: input_tokens + output_tokens,
+                            // Streaming doesn't provide cache metrics in chunk events
+                            cache_read_tokens: None,
+                            cache_write_tokens: None,
                         });
 
                         tracing::debug!("🌊 Estimated token usage: input={}, output={}, total={}",
@@ -1175,6 +1307,9 @@ impl BedrockProvider {
                             input_tokens,
                             output_tokens,
                             total_tokens: input_tokens + output_tokens,
+                            // Streaming doesn't provide cache metrics in chunk events
+                            cache_read_tokens: None,
+                            cache_write_tokens: None,
                         });
 
                         tracing::debug!("🔧🌊 Estimated token usage with tools: input={}, output={}, total={}",
@@ -1579,6 +1714,8 @@ impl LlmProvider for BedrockProvider {
             supports_tools: true,
             supports_thinking: true, // Claude 4.5 supports extended thinking
             supports_vision: true,   // Claude 4.5 supports vision
+            supports_prompt_caching: true, // Supported for Claude and Nova models
+            supports_tool_caching: true,   // Claude supports tool caching (Nova does not)
             max_tokens: Some(200000),
             available_models: vec![
                 "us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string(),

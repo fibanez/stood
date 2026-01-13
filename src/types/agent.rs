@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::{content::ThinkingSummary, Messages, ToolExecutionResult};
+use crate::llm::traits::CacheStrategy;
 
 /// Configuration for an agent instance
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +24,15 @@ pub struct AgentConfig {
     pub max_tokens: Option<u32>,
     /// Whether to enable Claude 4's think tool
     pub enable_thinking: bool,
+    /// Prompt caching strategy for reducing latency and costs
+    ///
+    /// When enabled, frequently used content (system prompts, tool definitions)
+    /// can be cached by AWS Bedrock to reduce latency by up to 85% and costs by up to 90%
+    /// on subsequent requests within the 5-minute cache TTL.
+    ///
+    /// See [`CacheStrategy`] for available options.
+    #[serde(default)]
+    pub cache_strategy: CacheStrategy,
     /// Additional model-specific parameters
     #[serde(default)]
     pub additional_params: HashMap<String, serde_json::Value>,
@@ -38,6 +48,7 @@ impl Default for AgentConfig {
             temperature: None,
             max_tokens: None,
             enable_thinking: false, // Haiku doesn't support thinking
+            cache_strategy: CacheStrategy::default(),
             additional_params: HashMap::new(),
         }
     }

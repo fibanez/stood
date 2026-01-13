@@ -9,6 +9,48 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Prompt caching strategy for AWS Bedrock
+///
+/// Prompt caching can reduce latency by up to 85% and costs by up to 90%
+/// for repeated prompts by caching frequently used content across API calls.
+///
+/// # Supported Models
+/// - **Claude**: Claude 3.5 Haiku, Claude 3.7 Sonnet, Claude 4.x (supports tool caching)
+/// - **Nova**: Nova Micro, Lite, Pro, Premier (text only, no tool caching)
+///
+/// # Cache TTL
+/// The cache has a 5-minute TTL that resets with each successful cache hit.
+///
+/// # Token Requirements
+/// - Claude 3.7 Sonnet: minimum 1,024 tokens per checkpoint
+/// - Claude 3.5 Haiku: minimum 2,048 tokens per checkpoint
+/// - Maximum 4 cache checkpoints per request
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CacheStrategy {
+    /// Prompt caching disabled (default)
+    #[default]
+    Disabled,
+    /// Cache system prompt only
+    ///
+    /// Places a cache checkpoint at the end of the system prompt.
+    /// This is the most common use case for reducing costs on repeated queries
+    /// that share the same system instructions.
+    SystemOnly,
+    /// Cache system prompt and tool definitions
+    ///
+    /// Places cache checkpoints after the system prompt and after tool definitions.
+    /// **Note**: Only supported by Claude models. Nova models will fall back to
+    /// `SystemOnly` behavior since Nova does not support tool caching.
+    SystemAndTools,
+    /// Automatic cache placement based on content analysis
+    ///
+    /// Automatically places cache checkpoints at optimal locations based on:
+    /// - Token count thresholds (model-specific minimums)
+    /// - Content stability (static vs dynamic content)
+    /// - Maximum checkpoint limits (4 per request)
+    Auto,
+}
+
 /// Core LLM provider trait that abstracts away provider-specific implementations
 ///
 /// Providers own ALL implementation details including request formatting, response parsing,
@@ -174,6 +216,13 @@ pub struct ChatConfig {
     pub max_tokens: Option<u32>,
     /// Whether to enable thinking mode (if supported)
     pub enable_thinking: bool,
+    /// Prompt caching strategy
+    ///
+    /// When enabled, frequently used content (system prompts, tool definitions)
+    /// can be cached to reduce latency and costs on subsequent requests.
+    /// See [`CacheStrategy`] for available options.
+    #[serde(default)]
+    pub cache_strategy: CacheStrategy,
     /// Additional model-specific parameters
     #[serde(default)]
     pub additional_params: HashMap<String, serde_json::Value>,
@@ -188,6 +237,7 @@ impl ChatConfig {
             temperature: agent_config.temperature,
             max_tokens: agent_config.max_tokens,
             enable_thinking: agent_config.enable_thinking,
+            cache_strategy: agent_config.cache_strategy.clone(),
             additional_params: agent_config.additional_params.clone(),
         }
     }
@@ -298,12 +348,80 @@ pub enum StreamEvent {
     Done { usage: Option<Usage> },
 }
 
-/// Usage statistics
+/// Usage statistics including prompt caching metrics
+///
+/// When prompt caching is enabled, the response includes additional metrics
+/// about cache performance:
+/// - `cache_read_tokens`: Tokens read from cache (charged at ~10% of input price)
+/// - `cache_write_tokens`: Tokens written to cache (charged at ~125% of input price for Claude, free for Nova)
+///
+/// # Cost Calculation
+/// Effective input cost = (input_tokens * standard_rate)
+///                      + (cache_read_tokens * 0.1 * standard_rate)
+///                      + (cache_write_tokens * 1.25 * standard_rate)  // Claude only
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
+    /// Standard input tokens (not from cache)
     pub input_tokens: u32,
+    /// Output tokens generated
     pub output_tokens: u32,
+    /// Total tokens (input + output)
     pub total_tokens: u32,
+    /// Tokens read from prompt cache (90% cost savings)
+    ///
+    /// Present when prompt caching is enabled and content was found in cache.
+    /// These tokens are charged at approximately 10% of the standard input token price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u32>,
+    /// Tokens written to prompt cache
+    ///
+    /// Present when prompt caching is enabled and new content was cached.
+    /// For Claude models, these tokens are charged at approximately 125% of the
+    /// standard input token price. For Nova models, cache writes are free.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u32>,
+}
+
+impl Usage {
+    /// Create a new Usage with basic token counts
+    pub fn new(input_tokens: u32, output_tokens: u32) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+            total_tokens: input_tokens + output_tokens,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        }
+    }
+
+    /// Create a new Usage with cache metrics
+    pub fn with_cache(
+        input_tokens: u32,
+        output_tokens: u32,
+        cache_read_tokens: Option<u32>,
+        cache_write_tokens: Option<u32>,
+    ) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+            total_tokens: input_tokens + output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
+        }
+    }
+
+    /// Check if this request had any cache activity
+    pub fn has_cache_activity(&self) -> bool {
+        self.cache_read_tokens.is_some() || self.cache_write_tokens.is_some()
+    }
+
+    /// Get the effective input tokens including cache reads
+    ///
+    /// This represents the total "logical" input tokens that were processed,
+    /// regardless of whether they came from cache or were sent fresh.
+    pub fn effective_input_tokens(&self) -> u32 {
+        self.input_tokens + self.cache_read_tokens.unwrap_or(0)
+    }
 }
 
 /// Health status
@@ -322,6 +440,17 @@ pub struct ProviderCapabilities {
     pub supports_tools: bool,
     pub supports_thinking: bool,
     pub supports_vision: bool,
+    /// Whether the provider supports prompt caching
+    ///
+    /// When true, the provider can cache frequently used content (system prompts,
+    /// messages) to reduce latency and costs on subsequent requests.
+    pub supports_prompt_caching: bool,
+    /// Whether the provider supports caching tool definitions
+    ///
+    /// When true, tool definitions can be included in cache checkpoints.
+    /// **Note**: Only Claude models support tool caching. Nova models only
+    /// support caching system prompts and messages.
+    pub supports_tool_caching: bool,
     pub max_tokens: Option<u32>,
     pub available_models: Vec<String>,
 }

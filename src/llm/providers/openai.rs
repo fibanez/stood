@@ -117,6 +117,8 @@ impl LlmProvider for OpenAIProvider {
             supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
+            supports_prompt_caching: false, // OpenAI doesn't expose prompt caching API
+            supports_tool_caching: false,
             max_tokens: Some(4096),
             available_models: vec![
                 "gpt-4o".to_string(),

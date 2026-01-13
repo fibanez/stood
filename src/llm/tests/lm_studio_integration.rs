@@ -75,6 +75,7 @@ mod tests {
                     temperature: Some(0.7),
                     max_tokens: Some(50),
                     enable_thinking: false,
+                    cache_strategy: crate::llm::traits::CacheStrategy::default(),
                     additional_params: std::collections::HashMap::new(),
                 };
 

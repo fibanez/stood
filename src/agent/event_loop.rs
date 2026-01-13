@@ -2247,6 +2247,7 @@ impl EventLoop {
             temperature: agent_config.temperature,
             max_tokens: agent_config.max_tokens,
             enable_thinking: false,
+            cache_strategy: agent_config.cache_strategy.clone(),
             additional_params: std::collections::HashMap::new(),
         };
 
@@ -2407,6 +2408,7 @@ impl EventLoop {
             temperature: agent_config.temperature,
             max_tokens: agent_config.max_tokens,
             enable_thinking: false,
+            cache_strategy: agent_config.cache_strategy.clone(),
             additional_params: std::collections::HashMap::new(),
         };
 

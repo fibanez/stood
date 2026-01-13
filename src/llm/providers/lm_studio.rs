@@ -673,6 +673,8 @@ impl LlmProvider for LMStudioProvider {
             supports_tools: false, // Depends on model and LM Studio configuration
             supports_thinking: false,
             supports_vision: false, // Depends on model
+            supports_prompt_caching: false, // Local models don't support prompt caching
+            supports_tool_caching: false,
             max_tokens: Some(4096), // LM Studio default - varies by model but 4096 is common default
             available_models: vec![
                 "google/gemma-3-12b".to_string(),
@@ -851,6 +853,9 @@ impl LMStudioProvider {
                 input_tokens: u.get("prompt_tokens")?.as_u64()? as u32,
                 output_tokens: u.get("completion_tokens")?.as_u64()? as u32,
                 total_tokens: u.get("total_tokens")?.as_u64()? as u32,
+                // LM Studio doesn't support prompt caching
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             })
         });
 
@@ -956,6 +961,9 @@ impl LMStudioProvider {
                 input_tokens: u.get("prompt_tokens")?.as_u64()? as u32,
                 output_tokens: u.get("completion_tokens")?.as_u64()? as u32,
                 total_tokens: u.get("total_tokens")?.as_u64()? as u32,
+                // LM Studio doesn't support prompt caching
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             })
         });
 
@@ -1078,6 +1086,9 @@ impl LMStudioProvider {
                     input_tokens,
                     output_tokens,
                     total_tokens: input_tokens + output_tokens,
+                    // LM Studio doesn't support prompt caching
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
                 });
 
                 tracing::debug!("🌊 LM Studio estimated token usage: input={}, output={}, total={}",
@@ -1321,6 +1332,9 @@ impl LMStudioProvider {
                                 input_tokens,
                                 output_tokens,
                                 total_tokens,
+                                // LM Studio doesn't support prompt caching
+                                cache_read_tokens: None,
+                                cache_write_tokens: None,
                             };
 
                             tracing::debug!("🌊 Usage metadata: {:?}", usage);

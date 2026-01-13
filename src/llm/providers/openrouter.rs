@@ -111,6 +111,8 @@ impl LlmProvider for OpenRouterProvider {
             supports_tools: false,     // Will be true when implemented
             supports_thinking: false,
             supports_vision: false,
+            supports_prompt_caching: false, // OpenRouter doesn't expose prompt caching
+            supports_tool_caching: false,
             max_tokens: None, // Varies by model
             available_models: vec![
                 "anthropic/claude-3.5-sonnet".to_string(),

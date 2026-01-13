@@ -16,6 +16,9 @@ pub use content::*;
 pub use messages::*;
 pub use tools::*;
 
+// Re-export prompt caching types from llm module for convenience
+pub use crate::llm::traits::CacheStrategy;
+
 /// A unique identifier for tracking conversations, tool calls, and events
 pub type RequestId = Uuid;
 
