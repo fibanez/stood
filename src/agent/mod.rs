@@ -546,6 +546,7 @@ impl Agent {
         let tool_registry = crate::perf_timed!("stood.build_internal.tool_registry_new", {
             ToolRegistry::new()
         });
+        #[cfg(feature = "perf-timing")]
         let tool_count = tools.len();
         crate::perf_timed!("stood.build_internal.register_tools", {
             for tool in tools {
@@ -555,15 +556,18 @@ impl Agent {
             }
             Ok::<(), StoodError>(())
         })?;
+        #[cfg(feature = "perf-timing")]
         crate::perf_checkpoint!("stood.build_internal.tools_registered", &format!("count={}", tool_count));
 
         // Register middleware
+        #[cfg(feature = "perf-timing")]
         let middleware_count = middlewares.len();
         crate::perf_timed!("stood.build_internal.register_middleware", {
             for middleware in middlewares {
                 tool_registry.add_middleware(middleware).await;
             }
         });
+        #[cfg(feature = "perf-timing")]
         crate::perf_checkpoint!("stood.build_internal.middleware_registered", &format!("count={}", middleware_count));
 
         // Initialize smart telemetry with auto-detection
@@ -667,6 +671,17 @@ impl Agent {
     /// ```
     pub fn cancellation_token(&self) -> Option<tokio_util::sync::CancellationToken> {
         self.execution_config.event_loop.cancellation_token.clone()
+    }
+
+    /// Reset the cancellation token with a fresh one
+    ///
+    /// This is useful when recovering from a cancelled state. The agent's
+    /// conversation history is preserved, only the cancellation token is replaced.
+    /// Returns the new token for external tracking.
+    pub fn reset_cancellation_token(&mut self) -> tokio_util::sync::CancellationToken {
+        let new_token = tokio_util::sync::CancellationToken::new();
+        self.execution_config.event_loop.cancellation_token = Some(new_token.clone());
+        new_token
     }
 
     /// Create an AgentContext from this agent for parent-child tracking

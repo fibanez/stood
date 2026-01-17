@@ -492,15 +492,18 @@ impl ToolExecutor {
         let started_at = Instant::now();
 
         // Create a truncated input preview for logging (first 100 chars)
-        let input_preview = {
-            let input_str = tool_use.input.to_string();
-            if input_str.chars().count() > 100 {
-                format!("{}...", crate::utils::logging::truncate_string(&input_str, 100))
-            } else {
-                input_str
-            }
-        };
-        crate::perf_checkpoint!("stood.tool.execute.start", &format!("tool={}, input={}", tool_use.name, input_preview));
+        #[cfg(feature = "perf-timing")]
+        {
+            let input_preview = {
+                let input_str = tool_use.input.to_string();
+                if input_str.chars().count() > 100 {
+                    format!("{}...", crate::utils::logging::truncate_string(&input_str, 100))
+                } else {
+                    input_str
+                }
+            };
+            crate::perf_checkpoint!("stood.tool.execute.start", &format!("tool={}, input={}", tool_use.name, input_preview));
+        }
         let _tool_guard = crate::perf_guard!("stood.tool.execute", &format!("tool={}", tool_use.name));
 
         // Acquire semaphore permit for concurrency control
@@ -565,15 +568,18 @@ impl ToolExecutor {
                 // Successful execution - convert new ToolResult to legacy format
                 let success = tool_result.success;
                 // Create a truncated output preview for logging
-                let output_preview = {
-                    let output_str = tool_result.content.to_string();
-                    if output_str.chars().count() > 100 {
-                        format!("{}...", crate::utils::logging::truncate_string(&output_str, 100))
-                    } else {
-                        output_str
-                    }
-                };
-                crate::perf_checkpoint!("stood.tool.execute.success", &format!("tool={}, output={}", tool_use.name, output_preview));
+                #[cfg(feature = "perf-timing")]
+                {
+                    let output_preview = {
+                        let output_str = tool_result.content.to_string();
+                        if output_str.chars().count() > 100 {
+                            format!("{}...", crate::utils::logging::truncate_string(&output_str, 100))
+                        } else {
+                            output_str
+                        }
+                    };
+                    crate::perf_checkpoint!("stood.tool.execute.success", &format!("tool={}, output={}", tool_use.name, output_preview));
+                }
                 (tool_result, success)
             }
             Ok(Err(tool_error)) => {

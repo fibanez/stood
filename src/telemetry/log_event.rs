@@ -86,26 +86,6 @@ mod langchain_format {
         });
         serde_json::to_string(&message).unwrap_or_else(|_| content.to_string())
     }
-
-    /// Format a system message in LangChain format
-    pub fn format_system_message(content: &str) -> String {
-        let message = json!({
-            "inputs": {
-                "messages": [{
-                    "lc": 1,
-                    "type": "constructor",
-                    "id": ["langchain", "schema", "messages", "SystemMessage"],
-                    "kwargs": {
-                        "content": content,
-                        "type": "system"
-                    }
-                }],
-                "next_step": "setup"
-            },
-            "tags": []
-        });
-        serde_json::to_string(&message).unwrap_or_else(|_| content.to_string())
-    }
 }
 
 /// OTEL Log Event for AgentCore Evaluations
